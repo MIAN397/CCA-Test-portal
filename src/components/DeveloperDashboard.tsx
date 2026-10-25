@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type { UserProfile, UserRole, AttendanceRecord, Quiz, Submission, Announcement } from '../types';
 import { REGISTRATION_CATEGORIES } from '../types';
 import { Shield, RefreshCw, Users, BookOpen, FileCheck, Calendar, Check, AlertCircle, Plus, DollarSign, Search, Bell, Sparkles, Trash2 } from 'lucide-react';
@@ -15,6 +15,23 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'danger', text: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'controls' | 'attendance' | 'quizzes' | 'financials' | 'homepage'>('controls');
+
+  useEffect(() => {
+    const handleTabChange = (e: any) => {
+      if (e.detail) {
+        if (e.detail === 'students' || e.detail === 'analytics') setActiveTab('controls');
+        else if (['controls', 'attendance', 'quizzes', 'financials', 'homepage'].includes(e.detail)) {
+          setActiveTab(e.detail as any);
+        }
+      }
+    };
+    window.addEventListener('change-tab', handleTabChange);
+    return () => window.removeEventListener('change-tab', handleTabChange);
+  }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tab-changed', { detail: activeTab }));
+  }, [activeTab]);
   const [attendanceDate, setAttendanceDate] = useState<string>(() => {
     const local = new Date();
     const offset = local.getTimezoneOffset();
@@ -160,8 +177,8 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
 
     if (systemSearch.trim()) {
       const q = systemSearch.toLowerCase().trim();
-      const nameMatch = u.displayName.toLowerCase().includes(q);
-      const emailMatch = u.email.toLowerCase().includes(q);
+      const nameMatch = (u.displayName || '').toLowerCase().includes(q);
+      const emailMatch = (u.email || '').toLowerCase().includes(q);
       const cadetMatch = u.registrationDetails?.cadetNumber?.toLowerCase().includes(q);
       if (!nameMatch && !emailMatch && !cadetMatch) return false;
     }
@@ -323,6 +340,7 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
 
   // Fetch users and calculate database stats
   const fetchData = async () => {
+    if (!auth.currentUser) return;
     setLoading(true);
     try {
       // Fetch Users
@@ -374,8 +392,9 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
       });
       setAnnouncements(fetchedAnn);
     } catch (err: any) {
-      console.error(err);
-      setMessage({ type: 'danger', text: "Failed to fetch system data: " + err.message });
+      if (auth.currentUser) {
+        setMessage({ type: 'danger', text: "Failed to fetch system data: " + err.message });
+      }
     } finally {
       setLoading(false);
     }
@@ -557,9 +576,17 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
     return { physPct, acadPct };
   };
 
-  const getUserQuizPerformanceStats = (email: string) => {
-    if (!email) return 'N/A';
-    const userSubmissions = submissions.filter(sub => sub.studentEmail && sub.studentEmail.toLowerCase() === email.toLowerCase());
+  const getUserQuizPerformanceStats = (user: UserProfile | string) => {
+    const email = typeof user === 'string' ? user : user.email;
+    const uid = typeof user === 'string' ? '' : user.uid;
+    if (!email && !uid) return 'N/A';
+    const targetEmail = (email || '').toLowerCase().trim();
+    const userSubmissions = submissions.filter(sub => {
+      if (!sub) return false;
+      const emailMatch = sub.studentEmail && sub.studentEmail.toLowerCase().trim() === targetEmail;
+      const uidMatch = uid && sub.studentUid && sub.studentUid === uid;
+      return emailMatch || uidMatch;
+    });
     let totalCorrect = 0;
     let totalQuestions = 0;
     userSubmissions.forEach(sub => {
@@ -572,13 +599,31 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
   const handleReviewResults = async (sub: Submission) => {
     setLoading(true);
     try {
-      const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
-      if (answersDoc.exists()) {
-        setReviewSubmission(sub);
-        setReviewCorrectAnswers(answersDoc.data().answers);
-      } else {
-        alert("Correct answers key not found for this quiz.");
+      let correctAnswers: Record<string, number> = {};
+      try {
+        const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
+        if (answersDoc.exists() && answersDoc.data()?.answers) {
+          correctAnswers = answersDoc.data().answers;
+        }
+      } catch (e) {
+        console.warn("Could not fetch quiz_answers doc:", e);
       }
+
+      const targetQuiz = quizzes.find(q => q.id === sub.quizId);
+      if (targetQuiz && targetQuiz.questions) {
+        targetQuiz.questions.forEach(q => {
+          const qObj = q as any;
+          if (correctAnswers[q.id] === undefined) {
+            if (qObj.correctOptionIndex !== undefined) correctAnswers[q.id] = qObj.correctOptionIndex;
+            else if (qObj.correctOption !== undefined) correctAnswers[q.id] = qObj.correctOption;
+            else if (qObj.correctAnswer !== undefined) correctAnswers[q.id] = qObj.correctAnswer;
+            else if (qObj.answer !== undefined) correctAnswers[q.id] = qObj.answer;
+          }
+        });
+      }
+
+      setReviewSubmission(sub);
+      setReviewCorrectAnswers(correctAnswers);
     } catch (err: any) {
       console.error(err);
       alert("Failed to load attempt details: " + err.message);
@@ -1225,82 +1270,130 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
   };
 
   return (
-    <div className="fade-in">
-      <div className="dashboard-header">
-        <div>
-          <h2>Developer System Controls</h2>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
-            Manage database state, pre-register users, and review attendance logs
-          </span>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select 
-            value={campusFilter} 
-            onChange={(e) => setCampusFilter(e.target.value as any)} 
-            style={{ 
-              height: '38px', 
-              padding: '0 1rem', 
-              border: '1px solid var(--border-color)', 
-              borderRadius: '6px', 
-              backgroundColor: 'var(--bg-white)', 
-              color: 'var(--text-main)', 
-              fontWeight: 600,
-              fontSize: '0.85rem'
-            }}
-          >
-            <option value="all">All Campuses</option>
-            <option value="boys">Boys Campus Only</option>
-            <option value="girls">Girls Campus Only</option>
-          </select>
-          <div className="segmented-control">
-            <button 
-              onClick={() => setActiveTab('controls')} 
-              className={`segmented-btn ${activeTab === 'controls' ? 'active' : ''}`}
-            >
-              <Shield size={14} />
-              System Controls
-            </button>
-            <button 
-              onClick={() => setActiveTab('attendance')} 
-              className={`segmented-btn ${activeTab === 'attendance' ? 'active' : ''}`}
-            >
-              <Calendar size={14} />
-              Attendance Logs
-            </button>
-            <button 
-              onClick={() => setActiveTab('quizzes')} 
-              className={`segmented-btn ${activeTab === 'quizzes' ? 'active' : ''}`}
-            >
-              <BookOpen size={14} />
-              Quizzes & Results
-            </button>
-            <button 
-              onClick={() => setActiveTab('financials')} 
-              className={`segmented-btn ${activeTab === 'financials' ? 'active' : ''}`}
-            >
-              <DollarSign size={14} />
-              Financials
-            </button>
-            <button 
-              onClick={() => setActiveTab('homepage')} 
-              className={`segmented-btn ${activeTab === 'homepage' ? 'active' : ''}`}
-            >
-              <Bell size={14} />
-              Main Page & Announcements
-            </button>
+    <div className="dash-layout fade-in">
+      {/* ── Left Sidebar Navigation (Sample Design) ── */}
+      <aside className="dash-sidebar">
+        <div className="dash-sidebar-header">
+          <div className="dash-sidebar-avatar">
+            <Shield size={20} />
           </div>
+          <div className="dash-sidebar-title">
+            <h3>Developer Console</h3>
+            <span>System Master</span>
+          </div>
+        </div>
+
+        <div className="dash-nav-group">
+          <span className="dash-nav-heading">System Menu</span>
+
           <button 
-            onClick={() => { fetchData(); fetchAttendanceForDate(attendanceDate); }} 
-            className="btn btn-secondary btn-sm" 
-            disabled={loading}
-            style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', width: 'auto', height: '38px', padding: '0 0.75rem' }}
+            type="button"
+            onClick={() => setActiveTab('controls')} 
+            className={`dash-nav-item ${activeTab === 'controls' ? 'active' : ''}`}
           >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            Reload System
+            <div className="dash-nav-item-left">
+              <Shield size={18} className="dash-nav-icon" />
+              <span>System Controls</span>
+            </div>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setActiveTab('attendance')} 
+            className={`dash-nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
+          >
+            <div className="dash-nav-item-left">
+              <Calendar size={18} className="dash-nav-icon" />
+              <span>Attendance Logs</span>
+            </div>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setActiveTab('quizzes')} 
+            className={`dash-nav-item ${activeTab === 'quizzes' ? 'active' : ''}`}
+          >
+            <div className="dash-nav-item-left">
+              <BookOpen size={18} className="dash-nav-icon" />
+              <span>Quizzes & Results</span>
+            </div>
+            {quizzes.length > 0 && (
+              <span className="dash-nav-badge">{quizzes.length}</span>
+            )}
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setActiveTab('financials')} 
+            className={`dash-nav-item ${activeTab === 'financials' ? 'active' : ''}`}
+          >
+            <div className="dash-nav-item-left">
+              <DollarSign size={18} className="dash-nav-icon" />
+              <span>Financials</span>
+            </div>
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setActiveTab('homepage')} 
+            className={`dash-nav-item ${activeTab === 'homepage' ? 'active' : ''}`}
+          >
+            <div className="dash-nav-item-left">
+              <Bell size={18} className="dash-nav-icon" />
+              <span>Main Page & News</span>
+            </div>
           </button>
         </div>
-      </div>
+
+        <div className="dash-sidebar-footer">
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', fontWeight: 600, textAlign: 'center' }}>
+            CCA Developer Console<br/>
+            <span style={{ color: 'var(--accent-gold-dark)', fontWeight: 700 }}>System Integrity: Active</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Main Content Area ── */}
+      <div className="dash-content">
+        <div className="dashboard-header">
+          <div>
+            <h2>Developer System Controls</h2>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
+              Manage database state, pre-register users, and review attendance logs
+            </span>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select 
+              value={campusFilter} 
+              onChange={(e) => setCampusFilter(e.target.value as any)} 
+              aria-label="Campus Filter"
+              style={{ 
+                height: '38px', 
+                padding: '0 0.85rem', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '8px', 
+                backgroundColor: 'var(--bg-white)', 
+                color: 'var(--text-main)', 
+                fontWeight: 600,
+                fontSize: '0.85rem'
+              }}
+            >
+              <option value="all">All Campuses</option>
+              <option value="boys">Boys Campus Only</option>
+              <option value="girls">Girls Campus Only</option>
+            </select>
+            <button 
+              onClick={() => { fetchData(); fetchAttendanceForDate(attendanceDate); }} 
+              className="btn btn-secondary btn-sm" 
+              disabled={loading}
+              style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', width: 'auto', height: '38px', padding: '0 0.85rem', borderRadius: '8px', fontWeight: 700 }}
+            >
+              <RefreshCw size={14} className={loading ? 'spin' : ''} />
+              Reload System
+            </button>
+          </div>
+        </div>
 
       {message && (
         <div className={`alert alert-${message.type}`}>
@@ -1339,7 +1432,8 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
             let acadPresent = 0;
             const targetUsers = users.filter(u => u.role === 'student' || u.role === 'teacher');
             targetUsers.forEach(u => {
-              const rec = attendanceRecords[u.email.toLowerCase()];
+              const emailKey = u.email ? u.email.toLowerCase() : '';
+              const rec = emailKey ? attendanceRecords[emailKey] : undefined;
               const isAcademicOnly = (u.role === 'student' && (u.registrationDetails?.category === 'Academics' || u.registrationDetails?.joinPhysical === false)) ||
                                      (u.role === 'teacher' && u.teacherDetails?.academicOnly);
               if (rec) {
@@ -2235,8 +2329,8 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                     if (attFilterRole !== 'All' && u.role !== attFilterRole) return false;
                     if (attSearch.trim() !== '') {
                       const searchLower = attSearch.toLowerCase();
-                      const nameMatch = u.displayName.toLowerCase().includes(searchLower);
-                      const emailMatch = u.email.toLowerCase().includes(searchLower);
+                      const nameMatch = (u.displayName || '').toLowerCase().includes(searchLower);
+                      const emailMatch = (u.email || '').toLowerCase().includes(searchLower);
                       if (!nameMatch && !emailMatch) return false;
                     }
                     if (u.role === 'student') {
@@ -2254,7 +2348,8 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                   });
 
                   filteredForAlerts.forEach(u => {
-                    const rec = attendanceRecords[u.email.toLowerCase()];
+                    const emailKey = u.email ? u.email.toLowerCase() : '';
+                    const rec = emailKey ? attendanceRecords[emailKey] : undefined;
                       if (rec && (rec.physicalAttendance === 'Absent' || rec.academicAttendance === 'Absent')) {
                         const phone = u.registrationDetails?.phone || '';
                         if (phone) {
@@ -2309,8 +2404,8 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
               if (attFilterRole !== 'All' && u.role !== attFilterRole) return false;
               if (attSearch.trim() !== '') {
                 const searchLower = attSearch.toLowerCase();
-                const nameMatch = u.displayName.toLowerCase().includes(searchLower);
-                const emailMatch = u.email.toLowerCase().includes(searchLower);
+                const nameMatch = (u.displayName || '').toLowerCase().includes(searchLower);
+                const emailMatch = (u.email || '').toLowerCase().includes(searchLower);
                 if (!nameMatch && !emailMatch) return false;
               }
               if (u.role === 'student') {
@@ -2467,13 +2562,14 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                         </tr>
                       ) : (
                         filteredAttendanceUsers.map((u) => {
-                          const rec = attendanceRecords[u.email.toLowerCase()];
+                          const userKey = u.email ? u.email.toLowerCase() : u.uid;
+                          const rec = attendanceRecords[userKey];
                           const phys = rec?.physicalAttendance || 'Present';
                           const acad = rec?.academicAttendance || 'Present';
                           const isDayActive = workingDays.includes(attendanceDate);
 
                           return (
-                            <tr key={u.email}>
+                            <tr key={userKey}>
                               <td style={{ fontWeight: 600 }}>{u.displayName}</td>
                               <td>{u.email}</td>
                               <td>
@@ -2842,16 +2938,16 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
               </h3>
 
               <div className="table-wrapper">
-                <table>
+                <table style={{ width: '100%', tableLayout: 'auto' }}>
                   <thead>
                     <tr>
-                      <th>Cadet ID & Name</th>
-                      <th>Batch / Class</th>
-                      <th>Total Quizzes Attempted</th>
-                      <th>Overall Score Avg (%)</th>
-                      <th>Overall Accuracy (%)</th>
-                      <th>Subject-by-Subject Performance</th>
-                      <th>Actions</th>
+                      <th style={{ width: '16%', minWidth: '140px' }}>Cadet ID & Name</th>
+                      <th style={{ width: '12%', minWidth: '110px' }}>Batch / Class</th>
+                      <th style={{ width: '10%', minWidth: '90px', textAlign: 'center' }}>Total Quizzes</th>
+                      <th style={{ width: '10%', minWidth: '90px', textAlign: 'center' }}>Avg Score</th>
+                      <th style={{ width: '14%', minWidth: '120px' }}>Overall Accuracy</th>
+                      <th style={{ width: '28%', minWidth: '200px' }}>Subject Breakdown</th>
+                      <th style={{ width: '10%', minWidth: '100px', textAlign: 'center' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2947,63 +3043,114 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
               </div>
             </div>
 
-            {/* Subject Details Modal for Selected Cadet */}
             {selectedCadetForProgress && (() => {
               const overview = getCadetAcademicOverview(selectedCadetForProgress.email, submissions, users);
-              const cadetSubmissions = submissions.filter(s => s.studentEmail && s.studentEmail.toLowerCase() === selectedCadetForProgress.email.toLowerCase());
+              
+              const targetEmail = (selectedCadetForProgress.email || '').toLowerCase().trim();
+              const targetUid = (selectedCadetForProgress.uid || '').trim();
+              const targetName = (selectedCadetForProgress.displayName || '').toLowerCase().trim();
+              const targetCadetNum = (selectedCadetForProgress.registrationDetails?.cadetNumber || '').toLowerCase().trim();
+
+              const cadetSubmissions = submissions.filter(s => {
+                if (!s) return false;
+                const sEmail = (s.studentEmail || '').toLowerCase().trim();
+                const sUid = (s.studentUid || '').trim();
+                const sName = (s.studentName || '').toLowerCase().trim();
+
+                const emailMatch = targetEmail && sEmail && sEmail === targetEmail;
+                const uidMatch = targetUid && sUid && sUid === targetUid;
+                const nameMatch = targetName && sName && sName === targetName;
+                const cadetNumMatch = targetCadetNum && (sEmail.includes(targetCadetNum) || sName.includes(targetCadetNum));
+
+                return emailMatch || uidMatch || nameMatch || cadetNumMatch;
+              }).sort((a, b) => {
+                const getMillis = (v: any) => {
+                  if (!v) return 0;
+                  if (typeof v.toMillis === 'function') return v.toMillis();
+                  if (typeof v.toDate === 'function') return v.toDate().getTime();
+                  if (v instanceof Date) return v.getTime();
+                  const t = new Date(v).getTime();
+                  return isNaN(t) ? 0 : t;
+                };
+                return getMillis(b.submittedAt) - getMillis(a.submittedAt);
+              });
+
+              const formatSubDate = (dateVal: any) => {
+                if (!dateVal) return 'N/A';
+                try {
+                  if (typeof dateVal.toDate === 'function') return dateVal.toDate().toLocaleString();
+                  if (dateVal instanceof Date) return dateVal.toLocaleString();
+                  if (typeof dateVal === 'string' || typeof dateVal === 'number') {
+                    const d = new Date(dateVal);
+                    if (!isNaN(d.getTime())) return d.toLocaleString();
+                  }
+                } catch (e) {}
+                return 'N/A';
+              };
+
               return (
-                <div className="modal-overlay">
-                  <div className="modal-content fade-in" style={{ maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto' }}>
-                    <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h3>Subject Performance & Progress Details</h3>
+                <div className="modal-overlay" style={{ backdropFilter: 'blur(6px)', backgroundColor: 'rgba(15, 23, 42, 0.75)', zIndex: 1100 }}>
+                  <div className="modal-content fade-in" style={{ width: '92vw', maxWidth: '1000px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '14px', padding: '2rem', display: 'block', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)' }}>
+                    
+                    {/* Modal Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1.25rem' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.3rem', color: 'var(--primary-navy)', margin: 0, fontWeight: 800 }}>Subject Performance & Progress Details</h3>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Academic record analytics & test history for enrolled cadet</span>
+                      </div>
                       <button 
                         onClick={() => setSelectedCadetForProgress(null)}
                         className="btn btn-secondary btn-sm"
+                        style={{ padding: '6px 16px', fontWeight: 600 }}
                       >
                         Close
                       </button>
                     </div>
 
-                    <div style={{ margin: '1rem 0', backgroundColor: 'var(--bg-slate)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                    {/* Cadet Overview Card */}
+                    <div style={{ margin: '0 0 1.5rem 0', backgroundColor: 'var(--bg-slate)', padding: '1.25rem', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>Cadet Name</span>
-                          <div style={{ fontWeight: 700, color: 'var(--primary-navy)' }}>{selectedCadetForProgress.displayName}</div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Cadet Name</span>
+                          <div style={{ fontWeight: 800, color: 'var(--primary-navy)', fontSize: '1rem' }}>{selectedCadetForProgress.displayName}</div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>Cadet Number</span>
-                          <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{selectedCadetForProgress.registrationDetails?.cadetNumber || 'N/A'}</div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Cadet Number</span>
+                          <div style={{ fontWeight: 800, fontFamily: 'monospace', color: 'var(--accent-gold-dark)', fontSize: '0.95rem' }}>{selectedCadetForProgress.registrationDetails?.cadetNumber || 'N/A'}</div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>Quizzes Attempted</span>
-                          <div style={{ fontWeight: 700 }}>{overview.totalQuizzesAttempted}</div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Quizzes Attempted</span>
+                          <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary-navy)' }}>{overview.totalQuizzesAttempted}</div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 600 }}>Overall Accuracy</span>
-                          <div style={{ fontWeight: 700, color: getPerformanceTier(overview.overallPercentage).color }}>{overview.overallPercentage}%</div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Overall Accuracy</span>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: getPerformanceTier(overview.overallPercentage).color }}>{overview.overallPercentage}%</div>
                         </div>
                       </div>
                     </div>
 
-                    <h4 style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--primary-navy)', marginBottom: '0.75rem' }}>Subject Breakdown</h4>
+                    {/* Subject Breakdown Section */}
+                    <h4 style={{ fontSize: '0.95rem', textTransform: 'uppercase', color: 'var(--primary-navy)', marginBottom: '0.85rem', letterSpacing: '0.05em', fontWeight: 700 }}>
+                      Subject Breakdown
+                    </h4>
                     {Object.keys(overview.subjectMetrics).length === 0 ? (
-                      <p style={{ color: 'var(--text-light)' }}>No subject performance data available for this cadet.</p>
+                      <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', fontStyle: 'italic' }}>No subject performance data recorded yet for this cadet.</p>
                     ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
                         {Object.values(overview.subjectMetrics).map(subj => {
                           const tier = getPerformanceTier(subj.percentage);
                           return (
-                            <div key={subj.subject} className="stat-card" style={{ borderTop: `4px solid ${tier.color}`, padding: '1rem' }}>
+                            <div key={subj.subject} className="stat-card" style={{ borderTop: `4px solid ${tier.color}`, padding: '1rem', borderRadius: '8px', backgroundColor: 'var(--bg-white)', boxShadow: '0 2px 4px rgba(0,0,0,0.03)' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 700, color: 'var(--primary-navy)' }}>{subj.subject}</span>
-                                <span className="badge" style={{ backgroundColor: tier.bg, color: tier.text, border: `1px solid ${tier.border}`, fontSize: '0.7rem' }}>
+                                <span style={{ fontWeight: 700, color: 'var(--primary-navy)', fontSize: '0.9rem' }}>{subj.subject}</span>
+                                <span className="badge" style={{ backgroundColor: tier.bg, color: tier.text, border: `1px solid ${tier.border}`, fontSize: '0.68rem', padding: '2px 8px' }}>
                                   {tier.label}
                                 </span>
                               </div>
-                              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: tier.color, margin: '0.5rem 0' }}>
+                              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: tier.color, margin: '0.4rem 0' }}>
                                 {subj.percentage}%
                               </div>
-                              <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
                                 Correct: {subj.totalCorrect} / {subj.totalQuestions} MCQs ({subj.totalAttempted} attempt{subj.totalAttempted === 1 ? '' : 's'})
                               </div>
                             </div>
@@ -3012,41 +3159,57 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                       </div>
                     )}
 
-                    <h4 style={{ fontSize: '1rem', textTransform: 'uppercase', color: 'var(--primary-navy)', marginBottom: '0.75rem' }}>Attempt History</h4>
+                    {/* Attempt History Section */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                      <h4 style={{ fontSize: '0.95rem', textTransform: 'uppercase', color: 'var(--primary-navy)', margin: 0, letterSpacing: '0.05em', fontWeight: 700 }}>
+                        Attempt History ({cadetSubmissions.length})
+                      </h4>
+                    </div>
+
                     {cadetSubmissions.length === 0 ? (
-                      <p style={{ color: 'var(--text-light)' }}>No quiz attempts logged.</p>
+                      <div style={{ padding: '2rem', textAlign: 'center', backgroundColor: 'var(--bg-slate)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-light)', fontSize: '0.9rem' }}>
+                        No quiz attempts logged for this cadet.
+                      </div>
                     ) : (
-                      <div className="table-wrapper">
-                        <table>
-                          <thead>
+                      <div style={{ width: '100%', overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', marginBottom: '1.5rem', boxShadow: '0 2px 6px rgba(0,0,0,0.03)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid var(--border-color)' }}>
                             <tr>
-                              <th>Quiz Title</th>
-                              <th>Subject</th>
-                              <th>Score</th>
-                              <th>Percentage</th>
-                              <th>Date</th>
-                              <th>Actions</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Quiz Title</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Subject</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Score</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Percentage</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Submitted Date</th>
+                              <th style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary-navy)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em', textAlign: 'right' }}>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {cadetSubmissions.map(sub => {
-                              const pct = Math.round((sub.score / sub.totalQuestions) * 100);
+                              const totalQ = sub.totalQuestions || 0;
+                              const score = sub.score || 0;
+                              const pct = totalQ > 0 ? Math.round((score / totalQ) * 100) : 0;
+                              const tier = getPerformanceTier(pct);
+
                               return (
-                                <tr key={sub.id}>
-                                  <td style={{ fontWeight: 600 }}>{sub.quizTitle}</td>
-                                  <td>{sub.teacherSubject || 'General'}</td>
-                                  <td>{sub.score} / {sub.totalQuestions}</td>
-                                  <td style={{ fontWeight: 'bold', color: getPerformanceTier(pct).color }}>{pct}%</td>
-                                  <td style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
-                                    {sub.submittedAt?.toDate ? sub.submittedAt.toDate().toLocaleString() : 'N/A'}
+                                <tr key={sub.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-white)' }}>
+                                  <td style={{ fontWeight: 600, padding: '12px 14px', color: 'var(--primary-navy)' }}>{sub.quizTitle}</td>
+                                  <td style={{ padding: '12px 14px', color: '#475569' }}>{sub.teacherSubject || 'General'}</td>
+                                  <td style={{ padding: '12px 14px', fontWeight: 700 }}>{score} / {totalQ}</td>
+                                  <td style={{ padding: '12px 14px' }}>
+                                    <span className="badge" style={{ backgroundColor: tier.bg, color: tier.text, border: `1px solid ${tier.border}`, fontWeight: 700, fontSize: '0.75rem', padding: '3px 10px' }}>
+                                      {pct}%
+                                    </span>
                                   </td>
-                                  <td>
+                                  <td style={{ padding: '12px 14px', fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                                    {formatSubDate(sub.submittedAt)}
+                                  </td>
+                                  <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                                     <button 
                                       onClick={() => setSubmissionToDelete(sub)}
                                       className="btn btn-danger btn-sm"
-                                      style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                                      style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', fontWeight: 600 }}
                                     >
-                                      Delete Submission
+                                      Delete
                                     </button>
                                   </td>
                                 </tr>
@@ -3057,8 +3220,9 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                       </div>
                     )}
 
-                    <div style={{ marginTop: '1.5rem', textAlign: 'right' }}>
-                      <button className="btn btn-secondary" onClick={() => setSelectedCadetForProgress(null)}>
+                    {/* Modal Footer */}
+                    <div style={{ marginTop: '1rem', textAlign: 'right', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                      <button className="btn btn-secondary" onClick={() => setSelectedCadetForProgress(null)} style={{ padding: '8px 20px', fontWeight: 600 }}>
                         Close Details
                       </button>
                     </div>
@@ -3610,7 +3774,7 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                     No installments scheduled. Click "Generate Splits" or add rows manually.
                   </p>
                 ) : (
-                  <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: 'var(--bg-white)' }}>
+                  <div style={{ maxHeight: '220px', overflowY: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: 'var(--bg-white)' }}>
                     <table style={{ margin: 0, fontSize: '0.8rem', width: '100%' }}>
                       <thead>
                         <tr style={{ backgroundColor: 'var(--bg-slate)' }}>
@@ -3761,19 +3925,35 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
                         if (oIdx === studentAns && !isCorrect) {
                           optionClass += " incorrect result-option.selected-wrong";
                         }
+                        const optImg = question.optionImages?.[oIdx];
+
                         return (
                           <div key={oIdx} className={optionClass}>
-                            <span style={{ fontWeight: 'bold', marginRight: '0.5rem' }}>
-                              {String.fromCharCode(65 + oIdx)}.
-                            </span>
-                            {opt}
-                            {oIdx === correctAns && " (Correct Key)"}
-                            {oIdx === studentAns && !isCorrect && " (Student's Choice - Incorrect)"}
-                            {oIdx === studentAns && isCorrect && " (Student's Choice - Correct)"}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 'bold' }}>
+                                {String.fromCharCode(65 + oIdx)}.
+                              </span>
+                              <span>{opt}</span>
+                              {oIdx === correctAns && <span style={{ fontWeight: 600 }}>(Correct Key)</span>}
+                              {oIdx === studentAns && !isCorrect && <span style={{ fontWeight: 600 }}>(Student's Choice - Incorrect)</span>}
+                              {oIdx === studentAns && isCorrect && <span style={{ fontWeight: 600 }}>(Student's Choice - Correct)</span>}
+                            </div>
+                            {optImg && (
+                              <img src={optImg} alt={`Option ${String.fromCharCode(65 + oIdx)} Diagram`} className="result-option-image" />
+                            )}
                           </div>
                         );
                       })}
                     </div>
+
+                    {question.explanation && (
+                      <div className="result-explanation-box">
+                        <div className="result-explanation-title">
+                          💡 Reason / Explanation:
+                        </div>
+                        <div>{question.explanation}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -3930,7 +4110,7 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
               {(() => {
                 const hasDueDates = bulkQueue.items.some(item => item.dueDate);
                 return (
-                  <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: 'var(--bg-light)' }}>
+                  <div style={{ maxHeight: '180px', overflowY: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxWidth: '100%', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: 'var(--bg-light)' }}>
                     <table style={{ margin: 0, fontSize: '0.8rem', width: '100%' }}>
                       <thead>
                         <tr>
@@ -4399,6 +4579,7 @@ export const DeveloperDashboard: React.FC<{ developerUid: string; developerEmail
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

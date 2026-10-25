@@ -1,10 +1,20 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { collection, doc, setDoc, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type { UserProfile, Quiz, Submission, AttendanceRecord } from '../types';
-import { Clock, FileText, User, Calendar, Check, AlertCircle, ArrowRight, Award, BarChart2, Sparkles } from 'lucide-react';
+import { Clock, FileText, User, Calendar, Check, AlertCircle, ArrowRight, Award, BarChart2, Sparkles, WifiOff, RefreshCw } from 'lucide-react';
 import { getEffectiveFinancials } from '../utils/financials';
-import { calculateStudentAcademicMetrics, getPerformanceTier, isStudentEligibleForQuiz } from '../utils/academic';
+import { calculateStudentAcademicMetrics, getPerformanceTier, isStudentEligibleForQuiz, evaluateQuizAttempt } from '../utils/academic';
+import { 
+  cacheQuizzesLocally, 
+  getCachedQuizzes, 
+  cacheSubmissionsLocally, 
+  getCachedSubmissions, 
+  queueOfflineSubmission, 
+  getOfflineSubmissionQueue, 
+  syncOfflineQueueToFirestore, 
+  setupOnlineSyncListener 
+} from '../utils/offlineSync';
 
 const getYearlyFee = (amount: number, duration: string): number => {
   const durLower = duration.toLowerCase().trim();
@@ -35,7 +45,42 @@ interface StudentDashboardProps {
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfile }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'quizzes' | 'attendance'>('quizzes');
-  
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => getOfflineSubmissionQueue(studentProfile.uid).length);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    const handleTabChange = (e: any) => {
+      if (e.detail && ['quizzes', 'attendance', 'profile'].includes(e.detail)) {
+        setActiveTab(e.detail);
+      }
+    };
+    window.addEventListener('change-tab', handleTabChange);
+    return () => window.removeEventListener('change-tab', handleTabChange);
+  }, []);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      const online = navigator.onLine;
+      setIsOffline(!online);
+      setPendingSyncCount(getOfflineSubmissionQueue(studentProfile.uid).length);
+    };
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    const cleanupSync = setupOnlineSyncListener(db, studentProfile.uid, (count) => {
+      setMessage({ type: 'success', text: `Internet restored: ${count} offline quiz result(s) synced with academy database!` });
+      setPendingSyncCount(getOfflineSubmissionQueue(studentProfile.uid).length);
+      fetchStudentData();
+    });
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+      cleanupSync();
+    };
+  }, [studentProfile.uid]);  
 
 
   // Academic / Quiz state
@@ -44,8 +89,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
   
   // Active Attempt state
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
+  const activeQuizRef = useRef<Quiz | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
+  const quizAnswersRef = useRef<Record<string, number>>({});
   const [timeLeft, setTimeLeft] = useState<number>(0); // in seconds
+  const quizEndTimeRef = useRef<number | null>(null);
   const timerRef = useRef<any | null>(null);
   
   // Results view modal
@@ -61,6 +109,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
   const [message, setMessage] = useState<{ type: 'success' | 'danger', text: string } | null>(null);
   const [profileState, setProfileState] = useState<UserProfile>(studentProfile);
 
+  useEffect(() => {
+    const handleTabChange = (e: any) => {
+      if (e.detail && ['quizzes', 'attendance', 'profile'].includes(e.detail)) {
+        setActiveTab(e.detail);
+      }
+    };
+    window.addEventListener('change-tab', handleTabChange);
+    return () => window.removeEventListener('change-tab', handleTabChange);
+  }, []);
+
   const subsList = useMemo(() => Object.values(mySubmissions), [mySubmissions]);
   const { overallStats, subjectMetrics } = useMemo(
     () => calculateStudentAcademicMetrics(subsList),
@@ -68,12 +126,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
   );
 
   const fetchStudentData = async () => {
+    if (!auth.currentUser) return;
     setLoading(true);
     try {
+      if (!navigator.onLine) {
+        throw new Error("Device is offline");
+      }
+
       // Fetch latest profile details (e.g. for financials)
-      const profileDoc = await getDoc(doc(db, 'users', studentProfile.email.toLowerCase()));
-      if (profileDoc.exists()) {
-        setProfileState(profileDoc.data() as UserProfile);
+      if (studentProfile.email) {
+        const profileDoc = await getDoc(doc(db, 'users', studentProfile.email.toLowerCase()));
+        if (profileDoc.exists()) {
+          setProfileState(profileDoc.data() as UserProfile);
+        }
       }
 
       // 1. Fetch available quizzes
@@ -83,26 +148,60 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
         fetchedQuizzes.push({ id: d.id, ...d.data() } as Quiz);
       });
       setQuizzes(fetchedQuizzes);
+      cacheQuizzesLocally(fetchedQuizzes);
 
-      // 2. Fetch my submissions
-      const submissionsQuery = query(collection(db, 'submissions'), where('studentUid', '==', studentProfile.uid));
-      const submissionsSnap = await getDocs(submissionsQuery);
+      // 2. Fetch my submissions (query by UID)
       const subsMap: Record<string, Submission> = {};
-      submissionsSnap.forEach(d => {
-        const sub = d.data() as Submission;
-        subsMap[sub.quizId] = sub;
-      });
+      const targetUid = studentProfile.uid || auth.currentUser?.uid;
+
+      if (targetUid) {
+        try {
+          const subByUid = await getDocs(query(collection(db, 'submissions'), where('studentUid', '==', targetUid)));
+          subByUid.forEach(d => {
+            const sub = d.data() as Submission;
+            subsMap[sub.quizId] = { ...sub, id: d.id };
+          });
+        } catch (e) {
+          if (auth.currentUser) {
+            console.warn("UID submission query error:", e);
+          }
+        }
+      } else if (studentProfile.email) {
+        try {
+          const subByEmail = await getDocs(query(collection(db, 'submissions'), where('studentEmail', '==', studentProfile.email.toLowerCase())));
+          subByEmail.forEach(d => {
+            const sub = d.data() as Submission;
+            if (!subsMap[sub.quizId]) {
+              subsMap[sub.quizId] = { ...sub, id: d.id };
+            }
+          });
+        } catch (e) {
+          if (auth.currentUser) {
+            console.warn("Email submission query error:", e);
+          }
+        }
+      }
+
       setMySubmissions(subsMap);
+      cacheSubmissionsLocally(targetUid || studentProfile.uid, subsMap);
 
       // 3. Fetch my attendance records
-      const attendanceQuery = query(collection(db, 'attendance'), where('userEmail', '==', studentProfile.email));
-      const attendanceSnap = await getDocs(attendanceQuery);
-      const fetchedAttendance: AttendanceRecord[] = [];
-      attendanceSnap.forEach(d => {
-        fetchedAttendance.push(d.data() as AttendanceRecord);
-      });
-      fetchedAttendance.sort((a, b) => b.date.localeCompare(a.date));
-      setMyAttendance(fetchedAttendance);
+      if (studentProfile.email) {
+        try {
+          const attendanceQuery = query(collection(db, 'attendance'), where('userEmail', '==', studentProfile.email.toLowerCase()));
+          const attendanceSnap = await getDocs(attendanceQuery);
+          const fetchedAttendance: AttendanceRecord[] = [];
+          attendanceSnap.forEach(d => {
+            fetchedAttendance.push(d.data() as AttendanceRecord);
+          });
+          fetchedAttendance.sort((a, b) => b.date.localeCompare(a.date));
+          setMyAttendance(fetchedAttendance);
+        } catch (e) {
+          if (auth.currentUser) {
+            console.warn("Attendance fetch error:", e);
+          }
+        }
+      }
 
       // 4. Fetch working days
       const workingSnap = await getDocs(collection(db, 'working_days'));
@@ -112,8 +211,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
       });
       setWorkingDays(fetchedWorking);
     } catch (err: any) {
-      console.error(err);
-      setMessage({ type: 'danger', text: "Failed to load database: " + err.message });
+      if (auth.currentUser) {
+        console.warn("Offline mode / Network issue, loading cached data:", err);
+      }
+      const cachedQ = getCachedQuizzes();
+      const cachedS = getCachedSubmissions(studentProfile.uid);
+      if (cachedQ.length > 0) setQuizzes(cachedQ);
+      if (Object.keys(cachedS).length > 0) setMySubmissions(cachedS);
+      setIsOffline(true);
     } finally {
       setLoading(false);
     }
@@ -121,148 +226,257 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
 
   useEffect(() => {
     fetchStudentData();
+    window.dispatchEvent(new CustomEvent('tab-changed', { detail: activeTab }));
   }, [activeTab]);
 
+  const handleManualSync = async () => {
+    if (!navigator.onLine) {
+      alert("Still offline. Please check your internet connection and try again.");
+      return;
+    }
+    setSyncing(true);
+    const res = await syncOfflineQueueToFirestore(db, studentProfile.uid);
+    setSyncing(false);
+    setPendingSyncCount(getOfflineSubmissionQueue(studentProfile.uid).length);
+    if (res.syncedCount > 0) {
+      setMessage({ type: 'success', text: `Successfully synced ${res.syncedCount} offline quiz result(s)!` });
+      fetchStudentData();
+    } else if (res.errors.length > 0) {
+      alert("Sync failed: " + res.errors.join(", "));
+    }
+  };
 
+  // Recalibrate and handle backgrounding / tab switching on mobile devices
+  useEffect(() => {
+    const handleSyncTimer = () => {
+      if (activeQuizRef.current && quizEndTimeRef.current) {
+        const remaining = Math.max(0, Math.ceil((quizEndTimeRef.current - Date.now()) / 1000));
+        setTimeLeft(remaining);
+        if (remaining <= 0) {
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          submitQuiz(activeQuizRef.current, quizAnswersRef.current, true);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleSyncTimer);
+    window.addEventListener('focus', handleSyncTimer);
+    return () => {
+      document.removeEventListener('visibilitychange', handleSyncTimer);
+      window.removeEventListener('focus', handleSyncTimer);
+    };
+  }, []);
+
+  // Restore active exam attempt if page was refreshed during a test
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(`cca_active_quiz_${studentProfile.uid}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.quiz && parsed.endTime) {
+          const remaining = Math.max(0, Math.ceil((parsed.endTime - Date.now()) / 1000));
+          if (remaining > 0) {
+            activeQuizRef.current = parsed.quiz;
+            quizEndTimeRef.current = parsed.endTime;
+            quizAnswersRef.current = parsed.answers || {};
+            setActiveQuiz(parsed.quiz);
+            setQuizAnswers(parsed.answers || {});
+            setTimeLeft(remaining);
+
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = setInterval(() => {
+              if (!quizEndTimeRef.current || !activeQuizRef.current) return;
+              const rem = Math.max(0, Math.ceil((quizEndTimeRef.current - Date.now()) / 1000));
+              setTimeLeft(rem);
+              if (rem <= 0) {
+                clearInterval(timerRef.current!);
+                timerRef.current = null;
+                submitQuiz(activeQuizRef.current, quizAnswersRef.current, true);
+              }
+            }, 1000);
+          } else {
+            sessionStorage.removeItem(`cca_active_quiz_${studentProfile.uid}`);
+          }
+        }
+      }
+    } catch (_) {}
+  }, [studentProfile.uid]);
 
   // Timed Quiz logic
   const startQuiz = async (quiz: Quiz) => {
-    if (window.confirm(`Start timed attempt for "${quiz.title}"? You will have ${quiz.duration} minutes. The quiz will auto-submit when the timer expires.`)) {
-      try {
-        const quizDocSnap = await getDoc(doc(db, 'quizzes', quiz.id));
-        const targetQuiz: Quiz = quizDocSnap.exists()
-          ? ({ id: quizDocSnap.id, ...quizDocSnap.data() } as Quiz)
-          : quiz;
-        setActiveQuiz(targetQuiz);
-        setQuizAnswers({});
-        setTimeLeft((targetQuiz.duration || 10) * 60);
-        setActiveTab('quizzes');
-      } catch (err: any) {
-        console.error(err);
-        setActiveQuiz(quiz);
-        setQuizAnswers({});
-        setTimeLeft((quiz.duration || 10) * 60);
-        setActiveTab('quizzes');
-      }
+    if (mySubmissions[quiz.id] && !quiz.allowRetakeForPreviousTakers) {
+      alert(`You have already completed and submitted "${quiz.title}". Retakes are not enabled for this examination.`);
+      return;
     }
-  };
 
-  // Timer effect
-  useEffect(() => {
-    if (activeQuiz && timeLeft > 0) {
+    if (window.confirm(`Start timed attempt for "${quiz.title}"? You will have ${quiz.duration} minutes. The quiz will auto-submit when the timer expires.`)) {
+      const durationSec = (quiz.duration || 10) * 60;
+      const endTime = Date.now() + durationSec * 1000;
+      quizEndTimeRef.current = endTime;
+      activeQuizRef.current = quiz;
+      setActiveQuiz(quiz);
+      quizAnswersRef.current = {};
+      setQuizAnswers({});
+      setTimeLeft(durationSec);
+
+      try {
+        sessionStorage.setItem(`cca_active_quiz_${studentProfile.uid}`, JSON.stringify({
+          quiz,
+          endTime,
+          answers: {}
+        }));
+      } catch (_) {}
+
+      if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current!);
-            // Auto-submit
-            submitQuiz(activeQuiz, quizAnswers, true);
-            return 0;
-          }
-          return prev - 1;
-        });
+        if (!quizEndTimeRef.current || !activeQuizRef.current) return;
+        const remaining = Math.max(0, Math.ceil((quizEndTimeRef.current - Date.now()) / 1000));
+        setTimeLeft(remaining);
+        if (remaining <= 0) {
+          clearInterval(timerRef.current!);
+          timerRef.current = null;
+          submitQuiz(activeQuizRef.current, quizAnswersRef.current, true);
+        }
       }, 1000);
     }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [activeQuiz, quizAnswers]);
-
-  const selectAnswer = (questionId: string, optionIndex: number) => {
-    setQuizAnswers(prev => ({
-      ...prev,
-      [questionId]: optionIndex
-    }));
   };
 
-  const submitQuiz = async (quiz: Quiz, answersToSubmit: Record<string, number>, isAutoSubmit = false) => {
+  const selectAnswer = (questionId: string, optionIndex: number) => {
+    quizAnswersRef.current = {
+      ...quizAnswersRef.current,
+      [questionId]: optionIndex
+    };
+    setQuizAnswers({ ...quizAnswersRef.current });
+    try {
+      const stored = sessionStorage.getItem(`cca_active_quiz_${studentProfile.uid}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        parsed.answers = quizAnswersRef.current;
+        sessionStorage.setItem(`cca_active_quiz_${studentProfile.uid}`, JSON.stringify(parsed));
+      }
+    } catch (_) {}
+  };
+
+  const submitQuiz = async (quiz: Quiz, answersToSubmitParam?: Record<string, number>, isAutoSubmit = false) => {
     if (!isAutoSubmit && !window.confirm("Are you sure you want to finalize and submit your quiz answers?")) return;
     
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    quizEndTimeRef.current = null;
+    try {
+      sessionStorage.removeItem(`cca_active_quiz_${studentProfile.uid}`);
+    } catch (_) {}
+
     setLoading(true);
     setMessage(null);
 
+    const answersToSubmit = answersToSubmitParam || quizAnswersRef.current || quizAnswers || {};
     const submissionDocId = `${studentProfile.uid}_${quiz.id}`;
 
+    // 1. Fetch serverAnswerKey if available
+    let serverAnswerKey: Record<string, any> | undefined = undefined;
+
     try {
-      // 1. Save base submission first (to satisfy security rules for reading answer key!)
-      // Store dummy score initially or calculate post-fetch
-      const tempSubmission: Submission = {
-        id: submissionDocId,
-        studentUid: studentProfile.uid,
-        studentEmail: studentProfile.email,
-        studentName: studentProfile.displayName,
-        quizId: quiz.id,
-        quizTitle: quiz.title,
-        answers: answersToSubmit,
-        score: 0,
-        totalQuestions: quiz.questions.length,
-        submittedAt: new Date(),
-        teacherName: quiz.teacherName || 'Unknown Teacher',
-        teacherSubject: quiz.teacherSubject || 'General',
-        campus: profileState.campus || studentProfile.campus || 'boys'
-      };
-
-      await setDoc(doc(db, 'submissions', submissionDocId), {
-        ...tempSubmission,
-        submittedAt: serverTimestamp()
-      });
-
-      // 2. Fetch correct answers from the secure database (allowed now because submission doc exists!)
       const answersDoc = await getDoc(doc(db, 'quiz_answers', quiz.id));
-      if (!answersDoc.exists()) {
-        throw new Error("Answer key not found on server database.");
+      if (answersDoc.exists() && answersDoc.data()?.answers) {
+        serverAnswerKey = answersDoc.data().answers;
       }
-      
-      const correctAnswers = answersDoc.data().answers as Record<string, number>;
+    } catch (err) {
+      console.warn("Could not fetch server quiz_answers document:", err);
+    }
 
-      // 3. Grade the attempt client-side
-      let calculatedScore = 0;
-      quiz.questions.forEach(q => {
-        if (answersToSubmit[q.id] === correctAnswers[q.id]) {
-          calculatedScore++;
-        }
-      });
+    // 2. Evaluate quiz attempt using universal evaluator engine
+    const { score: calculatedScore, totalQuestions, resolvedCorrectMap } = evaluateQuizAttempt(quiz, answersToSubmit, serverAnswerKey);
 
-      // 4. Update the submission with final calculated score
-      const finalSubmission: Submission = {
-        ...tempSubmission,
-        score: calculatedScore
-      };
+    const finalSubmission: Submission = {
+      id: submissionDocId,
+      studentUid: studentProfile.uid,
+      studentEmail: studentProfile.email,
+      studentName: studentProfile.displayName,
+      quizId: quiz.id,
+      quizTitle: quiz.title,
+      answers: answersToSubmit,
+      score: calculatedScore,
+      totalQuestions: totalQuestions || quiz.questions.length,
+      submittedAt: new Date(),
+      teacherName: quiz.teacherName || 'Academy Faculty',
+      teacherSubject: quiz.teacherSubject || 'General',
+      campus: profileState.campus || studentProfile.campus || 'boys'
+    };
 
+    try {
+      if (!navigator.onLine) {
+        throw new Error("Device is offline");
+      }
+
+      // Single atomic write with calculatedScore included
       await setDoc(doc(db, 'submissions', submissionDocId), {
         ...finalSubmission,
         submittedAt: serverTimestamp()
       });
 
-      // Update local submissions list
-      setMySubmissions(prev => ({
-        ...prev,
-        [quiz.id]: finalSubmission
-      }));
+      // Update local submissions list & cache
+      setMySubmissions(prev => {
+        const next = { ...prev, [quiz.id]: finalSubmission };
+        cacheSubmissionsLocally(studentProfile.uid, next);
+        return next;
+      });
 
-      // Exit active attempt mode
+      activeQuizRef.current = null;
       setActiveQuiz(null);
       
-      const pct = Math.round((calculatedScore / quiz.questions.length) * 100);
+      const pct = (totalQuestions || quiz.questions.length) > 0 
+        ? Math.round((calculatedScore / (totalQuestions || quiz.questions.length)) * 100) 
+        : 0;
+
       setShowQuizResultPopup({
         score: calculatedScore,
-        total: quiz.questions.length,
+        total: totalQuestions || quiz.questions.length,
         pct: pct,
         subject: quiz.teacherSubject || 'General',
-        teacher: quiz.teacherName || 'Unknown Teacher'
+        teacher: quiz.teacherName || 'Academy Faculty'
       });
 
       if (isAutoSubmit) {
         alert("TIME EXPIRED! Your quiz has been auto-submitted.");
       }
 
-      // Open review immediately behind the popup
       setReviewSubmission(finalSubmission);
-      setReviewCorrectAnswers(correctAnswers);
+      setReviewCorrectAnswers(resolvedCorrectMap);
     } catch (err: any) {
-      console.error(err);
-      setMessage({ type: 'danger', text: "Failed to grade and save quiz attempt: " + err.message });
+      console.warn("Offline mode or network unavailable, queueing submission locally:", err);
+
+      queueOfflineSubmission(finalSubmission);
+      setMySubmissions(prev => {
+        const next = { ...prev, [quiz.id]: finalSubmission };
+        cacheSubmissionsLocally(studentProfile.uid, next);
+        return next;
+      });
+      setPendingSyncCount(getOfflineSubmissionQueue(studentProfile.uid).length);
+      activeQuizRef.current = null;
+      setActiveQuiz(null);
+
+      const pct = (totalQuestions || quiz.questions.length) > 0 
+        ? Math.round((calculatedScore / (totalQuestions || quiz.questions.length)) * 100) 
+        : 0;
+
+      setShowQuizResultPopup({
+        score: calculatedScore,
+        total: totalQuestions || quiz.questions.length,
+        pct: pct,
+        subject: quiz.teacherSubject || 'General',
+        teacher: quiz.teacherName || 'Academy Faculty'
+      });
+
+      setMessage({
+        type: 'success',
+        text: 'Offline Mode: Quiz result saved on device! It will automatically sync to academy servers when internet is connected.'
+      });
     } finally {
       setLoading(false);
     }
@@ -271,11 +485,24 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
   const handleReviewResults = async (sub: Submission) => {
     setLoading(true);
     try {
-      // Fetch answers key (security rules allow because this student's submission document exists)
-      const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
-      if (answersDoc.exists()) {
+      let serverAnswerKey: Record<string, any> | undefined = undefined;
+      try {
+        const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
+        if (answersDoc.exists() && answersDoc.data()?.answers) {
+          serverAnswerKey = answersDoc.data().answers;
+        }
+      } catch (e) {
+        console.warn("Could not fetch quiz_answers doc:", e);
+      }
+
+      const targetQuiz = quizzes.find(q => q.id === sub.quizId);
+      if (targetQuiz) {
+        const { resolvedCorrectMap } = evaluateQuizAttempt(targetQuiz, sub.answers || {}, serverAnswerKey);
         setReviewSubmission(sub);
-        setReviewCorrectAnswers(answersDoc.data().answers);
+        setReviewCorrectAnswers(resolvedCorrectMap);
+      } else {
+        setReviewSubmission(sub);
+        setReviewCorrectAnswers(serverAnswerKey || {});
       }
     } catch (err: any) {
       console.error(err);
@@ -336,38 +563,59 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {activeQuiz.questions.map((q, idx) => (
-              <div key={q.id} className="quiz-question-attempt">
-                <h3>Q{idx + 1}. {q.questionText}</h3>
-                {q.imageUrl && (
-                  <div className="quiz-question-image-wrapper">
-                    <img src={q.imageUrl} alt={`Question ${idx + 1} Visual`} className="quiz-question-image" />
+            {activeQuiz.questions.map((q, idx) => {
+              const hasOptionImages = q.optionImages && q.optionImages.some(img => img && img.trim().length > 0);
+
+              return (
+                <div key={q.id} className="quiz-question-attempt">
+                  <h3>Q{idx + 1}. {q.questionText}</h3>
+                  {q.imageUrl && (
+                    <div className="quiz-question-image-wrapper">
+                      <img src={q.imageUrl} alt={`Question ${idx + 1} Visual`} className="quiz-question-image" />
+                    </div>
+                  )}
+                  <div className={`quiz-options-grid ${hasOptionImages ? 'has-images' : ''}`}>
+                    {q.options.map((opt, oIdx) => {
+                      const optImg = q.optionImages?.[oIdx];
+                      const isSelected = quizAnswers[q.id] === oIdx;
+
+                      return (
+                        <label 
+                          key={oIdx} 
+                          className={`quiz-option-label ${isSelected ? 'selected' : ''} ${optImg ? 'has-img-content' : ''}`}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%' }}>
+                            <input 
+                              type="radio" 
+                              name={`q_${q.id}`} 
+                              checked={isSelected}
+                              onChange={() => selectAnswer(q.id, oIdx)}
+                              disabled={loading}
+                            />
+                            <span style={{ fontWeight: 600 }}>
+                              {String.fromCharCode(65 + oIdx)}. {opt}
+                            </span>
+                          </div>
+
+                          {optImg && (
+                            <img 
+                              src={optImg} 
+                              alt={`Option ${String.fromCharCode(65 + oIdx)} Figure`} 
+                              className="quiz-option-image-display" 
+                            />
+                          )}
+                        </label>
+                      );
+                    })}
                   </div>
-                )}
-                <div className="quiz-options-grid">
-                  {q.options.map((opt, oIdx) => (
-                    <label 
-                      key={oIdx} 
-                      className={`quiz-option-label ${quizAnswers[q.id] === oIdx ? 'selected' : ''}`}
-                    >
-                      <input 
-                        type="radio" 
-                        name={`q_${q.id}`} 
-                        checked={quizAnswers[q.id] === oIdx}
-                        onChange={() => selectAnswer(q.id, oIdx)}
-                        disabled={loading}
-                      />
-                      <span>{opt}</span>
-                    </label>
-                  ))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <button 
             type="button" 
-            onClick={() => submitQuiz(activeQuiz, quizAnswers)} 
+            onClick={() => submitQuiz(activeQuiz!, quizAnswersRef.current)} 
             className="btn btn-secondary"
             disabled={loading}
             style={{ marginTop: '2rem', height: '50px' }}
@@ -376,39 +624,109 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
           </button>
         </div>
       ) : (
-        <>
-          <div className="dashboard-header">
-            <div>
-              <h2>Cadet Personal Dashboard</h2>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
-                Service Number: {studentProfile.registrationDetails?.cadetNumber || 'Pending Assignment'}
-              </span>
+        <div className="dash-layout">
+          {/* ── Left Sidebar Navigation (Sample Design) ── */}
+          <aside className="dash-sidebar">
+            <div className="dash-sidebar-header">
+              <div className="dash-sidebar-avatar" style={{ backgroundColor: 'var(--primary-navy)' }}>
+                <User size={20} />
+              </div>
+              <div className="dash-sidebar-title">
+                <h3>{studentProfile.displayName || 'Cadet'}</h3>
+                <span>{studentProfile.registrationDetails?.cadetNumber || 'Cadet Trainee'}</span>
+              </div>
             </div>
-            
-            <div className="segmented-control">
+
+            <div className="dash-nav-group">
+              <span className="dash-nav-heading">Cadet Portal</span>
+
               <button 
+                type="button"
                 onClick={() => setActiveTab('quizzes')} 
-                className={`segmented-btn ${activeTab === 'quizzes' ? 'active' : ''}`}
+                className={`dash-nav-item ${activeTab === 'quizzes' ? 'active' : ''}`}
               >
-                <FileText size={14} />
-                Online Quizzes
+                <div className="dash-nav-item-left">
+                  <FileText size={18} className="dash-nav-icon" />
+                  <span>Online Quizzes</span>
+                </div>
+                {quizzes.length > 0 && (
+                  <span className="dash-nav-badge">{quizzes.length}</span>
+                )}
               </button>
+
               <button 
+                type="button"
                 onClick={() => setActiveTab('attendance')} 
-                className={`segmented-btn ${activeTab === 'attendance' ? 'active' : ''}`}
+                className={`dash-nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
               >
-                <Calendar size={14} />
-                My Attendance
+                <div className="dash-nav-item-left">
+                  <Calendar size={18} className="dash-nav-icon" />
+                  <span>My Attendance</span>
+                </div>
               </button>
+
               <button 
+                type="button"
                 onClick={() => setActiveTab('profile')} 
-                className={`segmented-btn ${activeTab === 'profile' ? 'active' : ''}`}
+                className={`dash-nav-item ${activeTab === 'profile' ? 'active' : ''}`}
               >
-                <User size={14} />
-                Registration Info
+                <div className="dash-nav-item-left">
+                  <User size={18} className="dash-nav-icon" />
+                  <span>Registration Info</span>
+                </div>
               </button>
             </div>
-          </div>
+
+            <div className="dash-sidebar-footer">
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', fontWeight: 600, textAlign: 'center' }}>
+                Batch: {studentProfile.registrationDetails?.batch || '2026'}<br/>
+                <span style={{ color: 'var(--accent-gold-dark)', fontWeight: 700 }}>
+                  {studentProfile.registrationDetails?.physicalGroup || 'Cadet Wing'}
+                </span>
+              </div>
+            </div>
+          </aside>
+
+          {/* ── Main Content Area ── */}
+          <div className="dash-content">
+            <div className="dashboard-header">
+              <div>
+                <h2>Cadet Personal Dashboard</h2>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
+                  Service Number: {studentProfile.registrationDetails?.cadetNumber || 'Pending Assignment'}
+                </span>
+              </div>
+            </div>
+
+          {(isOffline || pendingSyncCount > 0) && (
+            <div 
+              className="alert fade-in" 
+              style={{ 
+                backgroundColor: isOffline ? 'rgba(234, 179, 8, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
+                border: `1px solid ${isOffline ? '#f59e0b' : '#10b981'}`, 
+                color: 'var(--primary-navy)', 
+                marginBottom: '1.25rem', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.5rem'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <WifiOff size={18} color={isOffline ? '#f59e0b' : '#10b981'} />
+                <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+                  {isOffline ? 'Offline Mode Active' : 'Network Connected'}: {pendingSyncCount} quiz attempt(s) saved on device waiting to sync.
+                </span>
+              </div>
+              {pendingSyncCount > 0 && navigator.onLine && (
+                <button onClick={handleManualSync} className="btn btn-secondary btn-sm" disabled={syncing} style={{ gap: '4px' }}>
+                  <RefreshCw size={14} />
+                  <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {message && (
             <div className={`alert alert-${message.type}`}>
@@ -1054,19 +1372,35 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
                             if (oIdx === studentAns && !isCorrect) {
                               optionClass += " incorrect result-option.selected-wrong";
                             }
+                            const optImg = question.optionImages?.[oIdx];
+
                             return (
                               <div key={oIdx} className={optionClass}>
-                                <span style={{ fontWeight: 'bold', marginRight: '0.5rem' }}>
-                                  {String.fromCharCode(65 + oIdx)}.
-                                </span>
-                                {opt}
-                                {oIdx === correctAns && " (Correct Key)"}
-                                {oIdx === studentAns && !isCorrect && " (Your Answer - Incorrect)"}
-                                {oIdx === studentAns && isCorrect && " (Your Answer - Correct)"}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 'bold' }}>
+                                    {String.fromCharCode(65 + oIdx)}.
+                                  </span>
+                                  <span>{opt}</span>
+                                  {oIdx === correctAns && <span style={{ fontWeight: 600 }}>(Correct Key)</span>}
+                                  {oIdx === studentAns && !isCorrect && <span style={{ fontWeight: 600 }}>(Your Answer - Incorrect)</span>}
+                                  {oIdx === studentAns && isCorrect && <span style={{ fontWeight: 600 }}>(Your Answer - Correct)</span>}
+                                </div>
+                                {optImg && (
+                                  <img src={optImg} alt={`Option ${String.fromCharCode(65 + oIdx)} Diagram`} className="result-option-image" />
+                                )}
                               </div>
                             );
                           })}
                         </div>
+
+                        {question.explanation && (
+                          <div className="result-explanation-box">
+                            <div className="result-explanation-title">
+                              💡 Reason / Explanation:
+                            </div>
+                            <div>{question.explanation}</div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1143,7 +1477,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentProfi
               </div>
             </div>
           )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );

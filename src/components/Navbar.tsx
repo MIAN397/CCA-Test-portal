@@ -4,6 +4,7 @@ import { auth } from '../firebase';
 import type { UserProfile } from '../types';
 import { getCampusLabel } from '../types';
 import { LogOut, LogIn } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 
 interface NavbarProps {
   userProfile: UserProfile | null;
@@ -20,6 +21,7 @@ export const Navbar: React.FC<NavbarProps> = ({ userProfile, onOpenLoginModal })
   };
 
   const campusLabel = userProfile ? getCampusLabel(userProfile.campus, userProfile.role) : '';
+  const isAndroid = Capacitor.getPlatform() === 'android';
 
   return (
     <nav className="navbar">
@@ -49,13 +51,15 @@ export const Navbar: React.FC<NavbarProps> = ({ userProfile, onOpenLoginModal })
           <span className={`user-badge`}>
             {userProfile.role}
           </span>
-          <button onClick={handleLogout} className="btn-logout" title="Sign Out">
-            <LogOut size={16} />
-            <span>Sign Out</span>
-          </button>
+          {!isAndroid && (
+            <button onClick={handleLogout} className="btn-logout" title="Sign Out">
+              <LogOut size={16} />
+              <span>Sign Out</span>
+            </button>
+          )}
         </div>
       ) : (
-        onOpenLoginModal && (
+        !isAndroid && onOpenLoginModal && (
           <button 
             onClick={onOpenLoginModal} 
             className="btn btn-secondary btn-sm"

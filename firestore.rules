@@ -62,6 +62,8 @@ service cloud.firestore {
     match /submissions/{submissionId} {
       allow read: if isLoggedIn() && (
         resource.data.studentUid == request.auth.uid || 
+        resource.data.studentEmail == request.auth.token.email ||
+        resource.data.studentEmail == request.auth.token.email.lower() ||
         getRole() in ['teacher', 'admin', 'developer']
       );
       // Students can create their own submissions
@@ -76,10 +78,18 @@ service cloud.firestore {
     // Attendance Collection
     match /attendance/{attendanceId} {
       allow read: if isLoggedIn() && (
-        resource.data.userEmail.lower() == request.auth.token.email.lower() || 
+        resource.data.userEmail == request.auth.token.email ||
+        resource.data.userEmail == request.auth.token.email.lower() ||
+        resource.data.userEmail.lower() == request.auth.token.email.lower() ||
         getRole() in ['admin', 'developer']
       );
       allow write: if isLoggedIn() && getRole() in ['admin', 'developer'];
+    }
+
+    // Admissions Inquiries Collection
+    match /admissions_inquiries/{inquiryId} {
+      allow create: if true; // Public can submit admissions inquiry from landing page
+      allow read, write: if isLoggedIn() && getRole() in ['admin', 'developer'];
     }
 
     // Working Days Collection

@@ -11,7 +11,7 @@
     }
   },
   "android": {
-    "minSdkVersion": 28,
+    "minSdkVersion": 24,
     "allowMixedContent": true
   },
   "ios": {

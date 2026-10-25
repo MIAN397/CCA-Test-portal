@@ -244,9 +244,25 @@ export const getCadetAcademicOverview = (
   users?: UserProfile[]
 ): CadetProgressOverview => {
   const normalizedEmail = (email || '').toLowerCase().trim();
-  const cadetSubs = (submissions || []).filter(
-    s => s && s.studentEmail && s.studentEmail.toLowerCase().trim() === normalizedEmail
-  );
+  const cadetUser = users ? users.find(u => u && u.email && u.email.toLowerCase().trim() === normalizedEmail) : undefined;
+  
+  const targetUid = (cadetUser?.uid || '').trim();
+  const targetName = (cadetUser?.displayName || '').toLowerCase().trim();
+  const targetCadetNum = (cadetUser?.registrationDetails?.cadetNumber || '').toLowerCase().trim();
+
+  const cadetSubs = (submissions || []).filter(s => {
+    if (!s) return false;
+    const sEmail = (s.studentEmail || '').toLowerCase().trim();
+    const sUid = (s.studentUid || '').trim();
+    const sName = (s.studentName || '').toLowerCase().trim();
+
+    const emailMatch = normalizedEmail && sEmail && sEmail === normalizedEmail;
+    const uidMatch = targetUid && sUid && sUid === targetUid;
+    const nameMatch = targetName && sName && sName === targetName;
+    const cadetNumMatch = targetCadetNum && (sEmail.includes(targetCadetNum) || sName.includes(targetCadetNum));
+
+    return emailMatch || uidMatch || nameMatch || cadetNumMatch;
+  });
 
   let totalCorrect = 0;
   let totalQuestions = 0;
@@ -283,7 +299,6 @@ export const getCadetAcademicOverview = (
     };
   });
 
-  const cadetUser = users ? users.find(u => u && u.email && u.email.toLowerCase().trim() === normalizedEmail) : undefined;
   const studentName = cadetSubs[0]?.studentName || cadetUser?.displayName || 'Unknown Cadet';
   const cadetNumber = cadetUser?.registrationDetails?.cadetNumber || 'N/A';
 
@@ -296,4 +311,139 @@ export const getCadetAcademicOverview = (
     scoreAverage: cadetSubs.length > 0 ? Math.round(sumPct / cadetSubs.length) : 0,
     subjectMetrics
   };
+};
+
+/**
+ * Universal Fail-Safe Quiz Evaluator Engine.
+ * Evaluates a student's submission against answer keys, question payloads, and fallback keying schemas.
+ */
+export const evaluateQuizAttempt = (
+  quiz: Quiz,
+  userAnswers: Record<string, any>,
+  serverAnswerKey?: Record<string, any>
+): { score: number; totalQuestions: number; resolvedCorrectMap: Record<string, number> } => {
+  let score = 0;
+  const questions = quiz?.questions || [];
+  const totalQuestions = questions.length;
+  const resolvedCorrectMap: Record<string, number> = {};
+
+  if (!questions || questions.length === 0) {
+    return { score: 0, totalQuestions: 0, resolvedCorrectMap: {} };
+  }
+
+  questions.forEach((q, idx) => {
+    const qObj = (q || {}) as any;
+    const qIdStr = qObj.id !== undefined && qObj.id !== null ? String(qObj.id) : '';
+
+    // Candidate key aliases for this question
+    const candidateKeys = [
+      qIdStr,
+      String(idx),
+      `q_${idx}`,
+      `q${idx + 1}`,
+      `question_${idx}`,
+      `question_${idx + 1}`,
+      qIdStr ? `q_${qIdStr}` : ''
+    ].filter(Boolean);
+
+    // 1. Resolve student's submitted answer across candidate keys
+    let submittedVal: any = undefined;
+    for (const key of candidateKeys) {
+      if (userAnswers && userAnswers[key] !== undefined && userAnswers[key] !== null) {
+        submittedVal = userAnswers[key];
+        break;
+      }
+    }
+
+    // 2. Resolve correct answer key across serverAnswerKey and question object properties
+    let correctVal: any = undefined;
+
+    // A. Check serverAnswerKey if provided
+    if (serverAnswerKey) {
+      for (const key of candidateKeys) {
+        if (serverAnswerKey[key] !== undefined && serverAnswerKey[key] !== null) {
+          correctVal = serverAnswerKey[key];
+          break;
+        }
+      }
+    }
+
+    // B. Check question object properties if not resolved from serverAnswerKey
+    if (correctVal === undefined || correctVal === null) {
+      if (qObj.correctIndex !== undefined && qObj.correctIndex !== null) correctVal = qObj.correctIndex;
+      else if (qObj.correctOptionIndex !== undefined && qObj.correctOptionIndex !== null) correctVal = qObj.correctOptionIndex;
+      else if (qObj.correctOption !== undefined && qObj.correctOption !== null) correctVal = qObj.correctOption;
+      else if (qObj.correctAnswer !== undefined && qObj.correctAnswer !== null) correctVal = qObj.correctAnswer;
+      else if (qObj.answer !== undefined && qObj.answer !== null) correctVal = qObj.answer;
+      else if (qObj.correct !== undefined && qObj.correct !== null) correctVal = qObj.correct;
+    }
+
+    // Convert correctVal to number if possible (e.g. index 0, 1, 2)
+    let numericCorrectIndex: number | undefined = undefined;
+    if (typeof correctVal === 'number') {
+      numericCorrectIndex = correctVal;
+    } else if (typeof correctVal === 'string' && /^\d+$/.test(correctVal.trim())) {
+      numericCorrectIndex = parseInt(correctVal.trim(), 10);
+    } else if (typeof correctVal === 'string' && Array.isArray(qObj.options)) {
+      // If correctVal was stored as option text e.g. "Islamabad"
+      const matchIdx = qObj.options.findIndex((opt: string) => String(opt).trim().toLowerCase() === String(correctVal).trim().toLowerCase());
+      if (matchIdx !== -1) {
+        numericCorrectIndex = matchIdx;
+      }
+    }
+
+    if (numericCorrectIndex !== undefined && qIdStr) {
+      resolvedCorrectMap[qIdStr] = numericCorrectIndex;
+    }
+    if (numericCorrectIndex !== undefined) {
+      resolvedCorrectMap[String(idx)] = numericCorrectIndex;
+    }
+
+    // 3. Compare submitted vs correct
+    if (submittedVal !== undefined && submittedVal !== null) {
+      let isCorrect = false;
+
+      // Match 1: Numeric index match
+      if (numericCorrectIndex !== undefined) {
+        const numSubmitted = typeof submittedVal === 'number' ? submittedVal : parseInt(String(submittedVal).trim(), 10);
+        if (!isNaN(numSubmitted) && numSubmitted === numericCorrectIndex) {
+          isCorrect = true;
+        }
+      }
+
+      // Match 2: Text match against options array
+      if (!isCorrect && Array.isArray(qObj.options)) {
+        const numSubmitted = typeof submittedVal === 'number' ? submittedVal : parseInt(String(submittedVal).trim(), 10);
+        if (!isNaN(numSubmitted) && qObj.options[numSubmitted] !== undefined) {
+          const submittedText = String(qObj.options[numSubmitted]).trim().toLowerCase();
+          const targetText = String(correctVal).trim().toLowerCase();
+          if (submittedText === targetText) {
+            isCorrect = true;
+          }
+        }
+
+        // Case B: submittedVal is option text string matching options[numericCorrectIndex]
+        if (!isCorrect && numericCorrectIndex !== undefined && qObj.options[numericCorrectIndex] !== undefined) {
+          const correctOptionText = String(qObj.options[numericCorrectIndex]).trim().toLowerCase();
+          const submittedText = String(submittedVal).trim().toLowerCase();
+          if (correctOptionText === submittedText) {
+            isCorrect = true;
+          }
+        }
+      }
+
+      // Match 3: Direct text equality match
+      if (!isCorrect && correctVal !== undefined && correctVal !== null) {
+        if (String(submittedVal).trim().toLowerCase() === String(correctVal).trim().toLowerCase()) {
+          isCorrect = true;
+        }
+      }
+
+      if (isCorrect) {
+        score++;
+      }
+    }
+  });
+
+  return { score, totalQuestions, resolvedCorrectMap };
 };

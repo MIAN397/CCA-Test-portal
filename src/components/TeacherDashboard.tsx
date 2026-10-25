@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where, serverTimestamp, deleteDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type { MCQQuestion, Quiz, Submission, AttendanceRecord, UserProfile } from '../types';
 import { REGISTRATION_CATEGORIES } from '../types';
 import { computeEligibleStudentEmails } from '../utils/academic';
@@ -20,6 +20,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(true);
   const [profileState, setProfileState] = useState<UserProfile | undefined>(teacherProfile);
+
+  useEffect(() => {
+    const handleTabChange = (e: any) => {
+      if (e.detail) {
+        if (e.detail === 'quizzes') setActiveTab('my-quizzes');
+        else if (e.detail === 'attendance') setActiveTab('attendance');
+        else if (e.detail === 'submissions') setActiveTab('monitor');
+      }
+    };
+    window.addEventListener('change-tab', handleTabChange);
+    return () => window.removeEventListener('change-tab', handleTabChange);
+  }, []);
   const [allowRetakeForPreviousTakers, setAllowRetakeForPreviousTakers] = useState<boolean>(false);
   
   // Quiz creation form state
@@ -29,10 +41,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   const [questions, setQuestions] = useState<Array<{
     questionText: string;
     options: string[];
+    optionImages?: string[];
     correctIndex: number;
     imageUrl?: string;
+    explanation?: string;
   }>>([
-    { questionText: '', options: ['', '', '', ''], correctIndex: 0, imageUrl: '' }
+    { questionText: '', options: ['', '', '', ''], optionImages: ['', '', '', ''], correctIndex: 0, imageUrl: '', explanation: '' }
   ]);
 
   // Quiz targeting state
@@ -62,6 +76,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   const [message, setMessage] = useState<{ type: 'success' | 'danger', text: string } | null>(null);
 
   const fetchMonitorAndAttendanceData = async () => {
+    if (!auth.currentUser) return;
     setLoading(true);
     try {
       // Fetch latest profile details (e.g. for financials)
@@ -120,8 +135,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
       });
       setQuizzes(fetchedQuizzes);
     } catch (err: any) {
-      console.error(err);
-      setMessage({ type: 'danger', text: "Failed to load database details: " + err.message });
+      if (auth.currentUser) {
+        setMessage({ type: 'danger', text: "Failed to load database details: " + err.message });
+      }
     } finally {
       setLoading(false);
     }
@@ -130,13 +146,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   const handleReviewResults = async (sub: Submission) => {
     setLoading(true);
     try {
-      const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
-      if (answersDoc.exists()) {
-        setReviewSubmission(sub);
-        setReviewCorrectAnswers(answersDoc.data().answers);
-      } else {
-        alert("Correct answers key not found for this quiz.");
+      let correctAnswers: Record<string, number> = {};
+      try {
+        const answersDoc = await getDoc(doc(db, 'quiz_answers', sub.quizId));
+        if (answersDoc.exists() && answersDoc.data()?.answers) {
+          correctAnswers = answersDoc.data().answers;
+        }
+      } catch (e) {
+        console.warn("Could not fetch quiz_answers doc:", e);
       }
+
+      const targetQuiz = quizzes.find(q => q.id === sub.quizId);
+      if (targetQuiz && targetQuiz.questions) {
+        targetQuiz.questions.forEach(q => {
+          const qObj = q as any;
+          if (correctAnswers[q.id] === undefined) {
+            if (qObj.correctOptionIndex !== undefined) correctAnswers[q.id] = qObj.correctOptionIndex;
+            else if (qObj.correctOption !== undefined) correctAnswers[q.id] = qObj.correctOption;
+            else if (qObj.correctAnswer !== undefined) correctAnswers[q.id] = qObj.correctAnswer;
+            else if (qObj.answer !== undefined) correctAnswers[q.id] = qObj.answer;
+          }
+        });
+      }
+
+      setReviewSubmission(sub);
+      setReviewCorrectAnswers(correctAnswers);
     } catch (err: any) {
       console.error(err);
       alert("Failed to load attempt details: " + err.message);
@@ -147,6 +181,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
 
   useEffect(() => {
     fetchMonitorAndAttendanceData();
+    window.dispatchEvent(new CustomEvent('tab-changed', { detail: activeTab }));
   }, [activeTab]);
 
   useEffect(() => {
@@ -196,7 +231,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   const handleAddQuestion = () => {
     setQuestions([
       ...questions,
-      { questionText: '', options: ['', '', '', ''], correctIndex: 0, imageUrl: '' }
+      { questionText: '', options: ['', '', '', ''], optionImages: ['', '', '', ''], correctIndex: 0, imageUrl: '', explanation: '' }
     ]);
   };
 
@@ -211,6 +246,66 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
 
   const handleQuestionImageUrlChange = (index: number, val: string) => {
     setQuestions(prev => prev.map((q, idx) => idx === index ? { ...q, imageUrl: val } : q));
+  };
+
+  const handleQuestionExplanationChange = (index: number, val: string) => {
+    setQuestions(prev => prev.map((q, idx) => idx === index ? { ...q, explanation: val } : q));
+  };
+
+  const handleOptionImageUrlChange = (qIndex: number, optIndex: number, val: string) => {
+    setQuestions(prev => prev.map((q, idx) => {
+      if (idx === qIndex) {
+        const optImgs = Array.isArray(q.optionImages) ? [...q.optionImages] : ['', '', '', ''];
+        optImgs[optIndex] = val;
+        return { ...q, optionImages: optImgs };
+      }
+      return q;
+    }));
+  };
+
+  const handleOptionImageFileUpload = (qIndex: number, optIndex: number, file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new globalThis.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          setQuestions(prev => prev.map((q, idx) => {
+            if (idx === qIndex) {
+              const optImgs = Array.isArray(q.optionImages) ? [...q.optionImages] : ['', '', '', ''];
+              optImgs[optIndex] = dataUrl;
+              return { ...q, optionImages: optImgs };
+            }
+            return q;
+          }));
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleImageFileUpload = (index: number, file: File) => {
@@ -321,8 +416,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
           options: Array.isArray(q.options) && q.options.length === 4 
             ? [...q.options] 
             : (Array.isArray(q.options) ? [...q.options, '', '', '', ''].slice(0, 4) : ['', '', '', '']),
+          optionImages: Array.isArray(q.optionImages) && q.optionImages.length === 4
+            ? [...q.optionImages]
+            : (Array.isArray(q.optionImages) ? [...q.optionImages, '', '', '', ''].slice(0, 4) : ['', '', '', '']),
           correctIndex: correctIdx,
-          imageUrl: q.imageUrl || ''
+          imageUrl: q.imageUrl || '',
+          explanation: q.explanation || ''
         };
       });
 
@@ -386,8 +485,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
         return;
       }
       for (let o = 0; o < 4; o++) {
-        if (!q.options[o].trim()) {
-          setMessage({ type: 'danger', text: `Option ${o + 1} for Question ${i + 1} is empty.` });
+        const hasText = q.options[o] && q.options[o].trim().length > 0;
+        const hasImg = q.optionImages && q.optionImages[o] && q.optionImages[o].trim().length > 0;
+        if (!hasText && !hasImg) {
+          setMessage({ type: 'danger', text: `Option ${String.fromCharCode(65 + o)} for Question ${i + 1} must have either text or an image.` });
           return;
         }
       }
@@ -428,12 +529,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
     try {
       // 1. Build Quiz document with unique IDs for all questions
       const nowTs = Date.now();
-      const mcqQuestions: MCQQuestion[] = questions.map((q, idx) => ({
-        id: `q_${idx}_${nowTs}_${Math.random().toString(36).substr(2, 5)}`,
-        questionText: q.questionText,
-        options: q.options,
-        ...(q.imageUrl ? { imageUrl: q.imageUrl } : {})
-      }));
+      const mcqQuestions: MCQQuestion[] = questions.map((q, idx) => {
+        const sanitizedOptions = q.options.map((opt, oIdx) => opt.trim() || `Option ${String.fromCharCode(65 + oIdx)}`);
+        const hasAnyOptionImg = q.optionImages && q.optionImages.some(img => img && img.trim().length > 0);
+        return {
+          id: `q_${idx}_${nowTs}_${Math.random().toString(36).substr(2, 5)}`,
+          questionText: q.questionText,
+          options: sanitizedOptions,
+          ...(hasAnyOptionImg ? { optionImages: q.optionImages } : {}),
+          ...(q.imageUrl ? { imageUrl: q.imageUrl } : {}),
+          ...(q.explanation && q.explanation.trim() ? { explanation: q.explanation.trim() } : {})
+        };
+      });
 
       const teacherRoles = (profileState?.teacherDetails?.subjects && profileState.teacherDetails.subjects.length > 0)
         ? profileState.teacherDetails.subjects
@@ -510,7 +617,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
       setQuizTitle('');
       setQuizDescription('');
       setQuizDuration(10);
-      setQuestions([{ questionText: '', options: ['', '', '', ''], correctIndex: 0, imageUrl: '' }]);
+      setQuestions([{ questionText: '', options: ['', '', '', ''], optionImages: ['', '', '', ''], correctIndex: 0, imageUrl: '' }]);
       setAssignToType('custom-target');
       setAssignToValue('');
       setSelectedSubjectRoleIdx(0);
@@ -598,53 +705,102 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
   };
 
   return (
-    <div className="fade-in">
-      <div className="dashboard-header">
-        <div>
-          <h2>Teacher Instruction Suite</h2>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
-            Upload academic material and review cadet accomplishments
-          </span>
+    <div className="dash-layout fade-in">
+      {/* ── Left Sidebar Navigation (Sample Design) ── */}
+      <aside className="dash-sidebar">
+        <div className="dash-sidebar-header">
+          <div className="dash-sidebar-avatar" style={{ backgroundColor: 'var(--primary-navy)' }}>
+            <BookOpen size={20} />
+          </div>
+          <div className="dash-sidebar-title">
+            <h3>Faculty Portal</h3>
+            <span>{teacherProfile?.teacherDetails?.subject || 'Academic Wing'}</span>
+          </div>
         </div>
-        
-        <div className="segmented-control">
+
+        <div className="dash-nav-group">
+          <span className="dash-nav-heading">Academic Tools</span>
+
           <button 
+            type="button"
             onClick={() => setActiveTab('create-quiz')} 
-            className={`segmented-btn ${activeTab === 'create-quiz' ? 'active' : ''}`}
+            className={`dash-nav-item ${activeTab === 'create-quiz' ? 'active' : ''}`}
           >
-            <Plus size={14} />
-            Create Timed Quiz
+            <div className="dash-nav-item-left">
+              <Plus size={18} className="dash-nav-icon" />
+              <span>Create Timed Quiz</span>
+            </div>
           </button>
+
           <button 
+            type="button"
             onClick={() => setActiveTab('my-quizzes')} 
-            className={`segmented-btn ${activeTab === 'my-quizzes' ? 'active' : ''}`}
+            className={`dash-nav-item ${activeTab === 'my-quizzes' ? 'active' : ''}`}
           >
-            <BookOpen size={14} />
-            My Quizzes
+            <div className="dash-nav-item-left">
+              <BookOpen size={18} className="dash-nav-icon" />
+              <span>My Quizzes</span>
+            </div>
+            {quizzes.length > 0 && (
+              <span className="dash-nav-badge">{quizzes.length}</span>
+            )}
           </button>
+
           <button 
+            type="button"
             onClick={() => setActiveTab('monitor')} 
-            className={`segmented-btn ${activeTab === 'monitor' ? 'active' : ''}`}
+            className={`dash-nav-item ${activeTab === 'monitor' ? 'active' : ''}`}
           >
-            <FileCheck size={14} />
-            Cadet Grades
+            <div className="dash-nav-item-left">
+              <FileCheck size={18} className="dash-nav-icon" />
+              <span>Cadet Grades</span>
+            </div>
+            {submissions.length > 0 && (
+              <span className="dash-nav-badge">{submissions.length}</span>
+            )}
           </button>
+
           <button 
+            type="button"
             onClick={() => setActiveTab('attendance')} 
-            className={`segmented-btn ${activeTab === 'attendance' ? 'active' : ''}`}
+            className={`dash-nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
           >
-            <Calendar size={14} />
-            My Attendance
+            <div className="dash-nav-item-left">
+              <Calendar size={18} className="dash-nav-icon" />
+              <span>My Attendance</span>
+            </div>
           </button>
+
           <button 
+            type="button"
             onClick={() => setActiveTab('salary')} 
-            className={`segmented-btn ${activeTab === 'salary' ? 'active' : ''}`}
+            className={`dash-nav-item ${activeTab === 'salary' ? 'active' : ''}`}
           >
-            <DollarSign size={14} />
-            My Salary
+            <div className="dash-nav-item-left">
+              <DollarSign size={18} className="dash-nav-icon" />
+              <span>My Salary</span>
+            </div>
           </button>
         </div>
-      </div>
+
+        <div className="dash-sidebar-footer">
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', fontWeight: 600, textAlign: 'center' }}>
+            {teacherProfile?.displayName || 'Faculty Member'}<br/>
+            <span style={{ color: 'var(--accent-gold-dark)', fontWeight: 700 }}>Instructor Portal</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Main Content Area ── */}
+      <div className="dash-content">
+        <div className="dashboard-header">
+          <div>
+            <h2>Teacher Instruction Suite</h2>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
+              Upload academic material and review cadet accomplishments
+            </span>
+          </div>
+        </div>
 
       {message && (
         <div className={`alert alert-${message.type}`}>
@@ -1236,53 +1392,84 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                   )}
                 </div>
 
-                <div className="form-group-row" style={{ marginTop: '0.75rem' }}>
-                  <div className="form-group">
-                    <label>Option A (Index 0)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Option A content" 
-                      value={q.options[0]} 
-                      onChange={(e) => handleOptionChange(idx, 0, e.target.value)}
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Option B (Index 1)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Option B content" 
-                      value={q.options[1]} 
-                      onChange={(e) => handleOptionChange(idx, 1, e.target.value)}
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-                </div>
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary-navy)', marginBottom: '0.5rem', display: 'block' }}>
+                    Options (A, B, C, D) — Enter text and/or upload option figures for non-verbal questions:
+                  </label>
 
-                <div className="form-group-row">
-                  <div className="form-group">
-                    <label>Option C (Index 2)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Option C content" 
-                      value={q.options[2]} 
-                      onChange={(e) => handleOptionChange(idx, 2, e.target.value)}
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Option D (Index 3)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Option D content" 
-                      value={q.options[3]} 
-                      onChange={(e) => handleOptionChange(idx, 3, e.target.value)}
-                      required
-                      disabled={loading}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                    {[0, 1, 2, 3].map((optIdx) => {
+                      const optLetter = String.fromCharCode(65 + optIdx);
+                      const optImg = q.optionImages?.[optIdx];
+
+                      return (
+                        <div key={optIdx} className="quiz-option-card-editor">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <label style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--primary-navy)', margin: 0 }}>
+                              Option {optLetter} (Index {optIdx})
+                            </label>
+                            {optImg && (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 600 }}>
+                                ✓ Has Image
+                              </span>
+                            )}
+                          </div>
+
+                          <input 
+                            type="text" 
+                            placeholder={`Option ${optLetter} text (optional if image added)`} 
+                            value={q.options[optIdx]} 
+                            onChange={(e) => handleOptionChange(idx, optIdx, e.target.value)}
+                            disabled={loading}
+                            style={{ fontSize: '0.85rem', marginBottom: '0.4rem' }}
+                          />
+
+                          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input 
+                              type="text" 
+                              placeholder={`Option ${optLetter} Image URL`} 
+                              value={optImg || ''} 
+                              onChange={(e) => handleOptionImageUrlChange(idx, optIdx, e.target.value)}
+                              disabled={loading}
+                              style={{ flex: '1 1 120px', fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}
+                            />
+
+                            <label className="btn btn-secondary btn-sm" style={{ margin: 0, padding: '0.3rem 0.6rem', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                              Upload
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    handleOptionImageFileUpload(idx, optIdx, e.target.files[0]);
+                                  }
+                                }}
+                                disabled={loading}
+                              />
+                            </label>
+
+                            {optImg && (
+                              <button 
+                                type="button" 
+                                onClick={() => handleOptionImageUrlChange(idx, optIdx, '')} 
+                                className="btn btn-danger btn-sm"
+                                style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem' }}
+                                disabled={loading}
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+
+                          {optImg && (
+                            <div style={{ marginTop: '0.4rem', textAlign: 'center' }}>
+                              <img src={optImg} alt={`Option ${optLetter} Preview`} className="quiz-option-image-preview-sm" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1298,6 +1485,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                     <option value={2}>Option C (Index 2)</option>
                     <option value={3}>Option D (Index 3)</option>
                   </select>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary-navy)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    💡 Reason / Explanation (Optional)
+                  </label>
+                  <textarea 
+                    placeholder="Provide the logic, pattern rule, or reason why this answer is correct (shown to students in review)..." 
+                    value={q.explanation || ''} 
+                    onChange={(e) => handleQuestionExplanationChange(idx, e.target.value)}
+                    disabled={loading}
+                    rows={2}
+                    style={{ fontSize: '0.85rem', resize: 'vertical' }}
+                  />
                 </div>
               </div>
             ))}
@@ -1343,7 +1544,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                   setEditingQuizId(null);
                   setQuizTitle('');
                   setQuizDescription('');
-                  setQuestions([{ questionText: '', options: ['', '', '', ''], correctIndex: 0 }]);
+                  setQuestions([{ questionText: '', options: ['', '', '', ''], optionImages: ['', '', '', ''], correctIndex: 0, imageUrl: '' }]);
                   setMessage({ type: 'success', text: 'Edit mode cleared. Creating a new quiz.' });
                 }}
                 className="btn btn-danger btn-sm"
@@ -1451,7 +1652,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                         setEditingQuizId(null);
                         setQuizTitle('');
                         setQuizDescription('');
-                        setQuestions([{ questionText: '', options: ['', '', '', ''], correctIndex: 0 }]);
+                        setQuestions([{ questionText: '', options: ['', '', '', ''], optionImages: ['', '', '', ''], correctIndex: 0, imageUrl: '' }]);
                         setActiveTab('create-quiz');
                       }} 
                       className="btn btn-secondary btn-sm" 
@@ -1701,21 +1902,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
           </div>
 
           <div className="table-wrapper">
-            <table>
+            <table style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th>Cadet Name</th>
-                  <th>Quiz Title</th>
-                  <th>Points Scored</th>
-                  <th>Success Rate</th>
-                  <th>Completion Timestamp</th>
-                  <th>Analysis</th>
+                  <th style={{ width: '20%', minWidth: '130px' }}>Cadet Name</th>
+                  <th style={{ width: '32%', minWidth: '180px' }}>Quiz Title</th>
+                  <th style={{ width: '12%', minWidth: '100px', textAlign: 'center' }}>Points Scored</th>
+                  <th style={{ width: '12%', minWidth: '90px', textAlign: 'center' }}>Success Rate</th>
+                  <th style={{ width: '14%', minWidth: '120px', textAlign: 'center' }}>Completion Timestamp</th>
+                  <th style={{ width: '10%', minWidth: '100px', textAlign: 'center' }}>Analysis</th>
                 </tr>
               </thead>
               <tbody>
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-light)' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-light)', padding: '1.5rem' }}>
                       No cadet quiz attempts recorded yet.
                     </td>
                   </tr>
@@ -1724,23 +1925,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                     const pct = Math.round((sub.score / sub.totalQuestions) * 100);
                     return (
                       <tr key={sub.id}>
-                        <td style={{ fontWeight: 600 }}>{sub.studentName}</td>
-                        <td>{sub.quizTitle}</td>
-                        <td style={{ fontWeight: 'bold' }}>{sub.score} / {sub.totalQuestions}</td>
-                        <td>
+                        <td style={{ fontWeight: 600, color: 'var(--primary-navy)' }}>{sub.studentName}</td>
+                        <td style={{ wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.4' }}>
+                          {sub.quizTitle}
+                        </td>
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: 'bold' }}>{sub.score}</span> / {sub.totalQuestions}
+                        </td>
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <span 
                             style={{ 
                               fontWeight: 'bold', 
+                              display: 'inline-block',
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              backgroundColor: pct >= 80 ? 'rgba(16, 185, 129, 0.12)' : pct >= 50 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                               color: pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--danger)' 
                             }}
                           >
                             {pct}%
                           </span>
                         </td>
-                        <td>
+                        <td style={{ textAlign: 'center', fontSize: '0.85rem', whiteSpace: 'nowrap', color: 'var(--text-light)' }}>
                           {sub.submittedAt?.toDate ? sub.submittedAt.toDate().toLocaleString() : new Date().toLocaleString()}
                         </td>
-                        <td>
+                        <td style={{ textAlign: 'center' }}>
                           <button 
                             onClick={() => handleReviewResults(sub)}
                             className="btn btn-secondary btn-sm"
@@ -1988,19 +2197,35 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
                         if (oIdx === studentAns && !isCorrect) {
                           optionClass += " incorrect result-option.selected-wrong";
                         }
+                        const optImg = question.optionImages?.[oIdx];
+
                         return (
                           <div key={oIdx} className={optionClass}>
-                            <span style={{ fontWeight: 'bold', marginRight: '0.5rem' }}>
-                              {String.fromCharCode(65 + oIdx)}.
-                            </span>
-                            {opt}
-                            {oIdx === correctAns && " (Correct Key)"}
-                            {oIdx === studentAns && !isCorrect && " (Student's Choice - Incorrect)"}
-                            {oIdx === studentAns && isCorrect && " (Student's Choice - Correct)"}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 'bold' }}>
+                                {String.fromCharCode(65 + oIdx)}.
+                              </span>
+                              <span>{opt}</span>
+                              {oIdx === correctAns && <span style={{ fontWeight: 600 }}>(Correct Key)</span>}
+                              {oIdx === studentAns && !isCorrect && <span style={{ fontWeight: 600 }}>(Student's Choice - Incorrect)</span>}
+                              {oIdx === studentAns && isCorrect && <span style={{ fontWeight: 600 }}>(Student's Choice - Correct)</span>}
+                            </div>
+                            {optImg && (
+                              <img src={optImg} alt={`Option ${String.fromCharCode(65 + oIdx)} Diagram`} className="result-option-image" />
+                            )}
                           </div>
                         );
                       })}
                     </div>
+
+                    {question.explanation && (
+                      <div className="result-explanation-box">
+                        <div className="result-explanation-title">
+                          💡 Reason / Explanation:
+                        </div>
+                        <div>{question.explanation}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2017,6 +2242,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherUid, 
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

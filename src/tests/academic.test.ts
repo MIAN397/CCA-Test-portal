@@ -1,4 +1,4 @@
-import { calculateStudentAcademicMetrics, getPerformanceTier, getCadetAcademicOverview } from '../utils/academic.ts';
+import { calculateStudentAcademicMetrics, getPerformanceTier, getCadetAcademicOverview, evaluateQuizAttempt } from '../utils/academic.ts';
 import type { Submission, UserProfile } from '../types.ts';
 
 let passedTests = 0;
@@ -460,6 +460,48 @@ try {
   );
 } catch (e: any) {
   assert(false, 'getPerformanceTier: Threshold Boundary Verification', `Threw error: ${e.message}`);
+}
+
+// -------------------------------------------------------------
+// 4. evaluateQuizAttempt Fail-Safe Evaluator Engine Tests
+// -------------------------------------------------------------
+
+try {
+  const dummyQuiz: any = {
+    id: 'quiz_123',
+    title: 'Test Physics Quiz',
+    questions: [
+      { id: 'q1', questionText: 'Q1', options: ['A', 'B', 'C', 'D'], correctIndex: 1 },
+      { id: 'q2', questionText: 'Q2', options: ['Alpha', 'Beta', 'Gamma'], correctOption: 'Beta' },
+      { id: '', questionText: 'Q3', options: ['X', 'Y', 'Z'], correctIndex: 2 }
+    ]
+  };
+
+  // Test Case A: Index-based user answers
+  const res1 = evaluateQuizAttempt(dummyQuiz, { q1: 1, q2: 1, '2': 2 });
+  assert(
+    res1.score === 3 && res1.totalQuestions === 3,
+    'evaluateQuizAttempt: Index & Candidate Key Matching',
+    `Evaluated ${res1.score}/3 correctly for index and candidate keys`
+  );
+
+  // Test Case B: Stale / Mismatched key alias (e.g. q_0 for index 0)
+  const res2 = evaluateQuizAttempt(dummyQuiz, { q_0: 1, q_1: 1, q_2: 2 });
+  assert(
+    res2.score === 3,
+    'evaluateQuizAttempt: Candidate Key Alias Resolution (q_0, q_1, q_2)',
+    `Evaluated ${res2.score}/3 correctly when keys use q_idx format`
+  );
+
+  // Test Case C: Option text matching fallback
+  const res3 = evaluateQuizAttempt(dummyQuiz, { q1: 'B', q2: 'Beta', '2': 'Z' });
+  assert(
+    res3.score === 3,
+    'evaluateQuizAttempt: Option Text Equality Matching',
+    `Evaluated ${res3.score}/3 correctly when answers are passed as text strings`
+  );
+} catch (e: any) {
+  assert(false, 'evaluateQuizAttempt: Fail-Safe Engine', `Threw error: ${e.message}`);
 }
 
 console.log(`\n=== TEST SUMMARY ===`);

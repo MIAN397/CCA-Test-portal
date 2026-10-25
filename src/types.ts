@@ -67,7 +67,10 @@ export interface MCQQuestion {
   id: string;
   questionText: string;
   options: string[]; // exactly 4 options
+  optionImages?: string[]; // Optional array of 4 image URLs or base64 data URLs for options (A, B, C, D)
+  correctOption?: number; // optional answer index (0-3) for client offline grading
   imageUrl?: string; // Optional image URL or base64 data URL for diagrams/sequences
+  explanation?: string; // Optional reasoning or detailed solution explanation
 }
 
 export interface Quiz {

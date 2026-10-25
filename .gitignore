@@ -28,7 +28,9 @@ dist-ssr
 .agents
 chrome_output*.txt
 chrome_profile
+scratch/
 dom_output.html
 firestore-debug.log
+*.apk
 
 

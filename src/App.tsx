@@ -9,7 +9,10 @@ import { DeveloperDashboard } from './components/DeveloperDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { StudentDashboard } from './components/StudentDashboard';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { Award, ShieldAlert } from 'lucide-react';
+import { signOut } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -17,6 +20,25 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [roleLoading, setRoleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentTab, setCurrentTab] = useState<string>('');
+
+  useEffect(() => {
+    const handleTabSync = (e: any) => {
+      if (e.detail) setCurrentTab(e.detail);
+    };
+    window.addEventListener('change-tab', handleTabSync);
+    window.addEventListener('tab-changed', handleTabSync);
+    return () => {
+      window.removeEventListener('change-tab', handleTabSync);
+      window.removeEventListener('tab-changed', handleTabSync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() === 'android') {
+      document.body.classList.add('is-android-app');
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -98,6 +120,15 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
+
   // Render Loader
   if (authLoading || roleLoading) {
     return (
@@ -138,14 +169,6 @@ function App() {
   if (!currentUser) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Navbar 
-          userProfile={null} 
-          onOpenLoginModal={() => {
-            // Trigger login modal button click inside LandingPage
-            const btn = document.querySelector('.hero-actions .btn-primary') as HTMLElement;
-            if (btn) btn.click();
-          }} 
-        />
         <LandingPage />
       </div>
     );
@@ -153,12 +176,12 @@ function App() {
 
   // Render Authenticated Dashboard based on User Role
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div className="app-portal-wrapper" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <Navbar userProfile={userProfile} />
       
-      <main className="container fade-in">
+      <main className="container fade-in" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
         {userProfile ? (
-          <div>
+          <div style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', minWidth: 0 }}>
             {userProfile.role === 'developer' && (
               <DeveloperDashboard developerUid={userProfile.uid} developerEmail={userProfile.email} />
             )}
@@ -183,6 +206,16 @@ function App() {
           </div>
         )}
       </main>
+
+      <MobileBottomNav 
+        userProfile={userProfile} 
+        onLogout={handleLogout}
+        activeTab={currentTab}
+        setActiveTab={(tabName) => {
+          setCurrentTab(tabName);
+          window.dispatchEvent(new CustomEvent('change-tab', { detail: tabName }));
+        }}
+      />
     </div>
   );
 }
