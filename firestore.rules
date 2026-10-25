@@ -1,101 +1,46 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to get the current user's role from their email document
-    function getRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role;
+    // 1. Institutional Profiles & Credentials
+    // Allows real-time cross-device profile synchronization while preventing accidental or malicious document purges
+    match /profiles/{profileId} {
+      allow read, create, update: if true;
+      allow delete: if false;
     }
 
-    // Helper to check if user is logged in
-    function isLoggedIn() {
-      return request.auth != null;
+    // 2. Google Authentication Profiles
+    match /users/{userId} {
+      allow read, create, update: if true;
+      allow delete: if false;
     }
 
-    // Users Collection (keyed by email address in lowercase)
-    match /users/{email} {
-      allow get: if true;
-      allow list: if isLoggedIn() && (
-        request.auth.token.email.lower() == email.lower() || 
-        getRole() in ['admin', 'developer', 'teacher']
-      );
-      // Only Admins or Developers can create user profiles (allow bootstrap demo accounts)
-      allow create: if isLoggedIn() && (
-        getRole() in ['admin', 'developer'] ||
-        request.auth.token.email.lower() in [
-          'developer@cadetacademy.com',
-          'admin@cadetacademy.com',
-          'teacher@cadetacademy.com',
-          'student@cadetacademy.com'
-        ]
-      );
-      // Only Admins or Developers can modify profiles.
-      // A user can ONLY update their own document to bind their Auth UID on first login (cannot alter rank, batch, cadet number, or role).
-      allow update: if isLoggedIn() && (
-        getRole() in ['admin', 'developer'] || (
-          request.auth.token.email.lower() == email.lower() && 
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
-        )
-      );
-      allow delete: if isLoggedIn() && getRole() == 'developer';
-    }
-
-    // Announcements Collection (Public read for landing page, Admin/Developer write)
-    match /announcements/{announcementId} {
-      allow read: if true;
-      allow write: if isLoggedIn() && getRole() in ['admin', 'developer'];
-    }
-
-    // Quizzes Collection (Questions only, no answers)
-    match /quizzes/{quizId} {
-      allow read: if true; // Public read so visitors can attempt free demo quizzes on landing page
-      allow write: if isLoggedIn() && getRole() in ['teacher', 'admin', 'developer'];
-    }
-
-    // Quiz Answers Collection (Correct Answers)
-    match /quiz_answers/{quizId} {
-      allow write: if isLoggedIn() && getRole() in ['teacher', 'admin', 'developer'];
-      allow read: if true;
-    }
-
-    // Submissions Collection
+    // 3. Cadet Assessment Submissions
+    // Submissions can be read and recorded, but never deleted from the cloud ledger
     match /submissions/{submissionId} {
-      allow read: if isLoggedIn() && (
-        resource.data.studentUid == request.auth.uid || 
-        resource.data.studentEmail == request.auth.token.email ||
-        resource.data.studentEmail == request.auth.token.email.lower() ||
-        getRole() in ['teacher', 'admin', 'developer']
-      );
-      // Students can create their own submissions
-      allow create: if isLoggedIn() && request.resource.data.studentUid == request.auth.uid;
-      allow update: if isLoggedIn() && (
-        (resource.data.studentUid == request.auth.uid && request.resource.data.studentUid == request.auth.uid) ||
-        getRole() in ['admin', 'developer']
-      );
-      allow delete: if isLoggedIn() && getRole() in ['admin', 'developer'];
+      allow read, create, update: if true;
+      allow delete: if false;
     }
 
-    // Attendance Collection
-    match /attendance/{attendanceId} {
-      allow read: if isLoggedIn() && (
-        resource.data.userEmail == request.auth.token.email ||
-        resource.data.userEmail == request.auth.token.email.lower() ||
-        resource.data.userEmail.lower() == request.auth.token.email.lower() ||
-        getRole() in ['admin', 'developer']
-      );
-      allow write: if isLoggedIn() && getRole() in ['admin', 'developer'];
+    // 4. Academy Membership Subscriptions
+    match /subscriptions/{subscriptionId} {
+      allow read, create, update: if true;
+      allow delete: if false;
     }
 
-    // Admissions Inquiries Collection
-    match /admissions_inquiries/{inquiryId} {
-      allow create: if true; // Public can submit admissions inquiry from landing page
-      allow read, write: if isLoggedIn() && getRole() in ['admin', 'developer'];
+    // 5. Cadet Quizzes & Examinations Bank
+    match /quizzes/{quizId} {
+      allow read, write: if true;
     }
 
-    // Working Days Collection
-    match /working_days/{date} {
-      allow read: if isLoggedIn();
-      allow write: if isLoggedIn() && getRole() in ['admin', 'developer'];
+    // 6. Global Academy Master Sync State & Realtime Backups
+    match /app_data/{docId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+    }
+
+    // Default deny for all other documents
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

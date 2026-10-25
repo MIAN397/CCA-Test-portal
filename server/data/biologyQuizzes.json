@@ -1,0 +1,724 @@
+[
+  {
+    "description": "Comprehensive 25-MCQ test covering BISE past papers, repeating board questions, and subjective concepts for Chapter 15 (Homeostasis). Includes Osmoregulation, Excretion in Plants, Human Nephron, Liver Homeostatic Functions, Lithotripsy, and Thermoregulation.",
+    "title": "Class 12 Biology: Chapter 15 — Homeostasis (Past Papers & Board Mastery)",
+    "totalMarks": 25,
+    "questions": [
+      {
+        "id": "q_ch15_01",
+        "questionText": "Protection of an internal environment from the harms of fluctuations in the external environment is termed as:",
+        "options": [
+          "Osmoregulation",
+          "Thermoregulation",
+          "Excretion",
+          "Homeostasis"
+        ],
+        "correctOption": 3,
+        "points": 1,
+        "explanation": "Homeostasis is the central mechanism that maintains dynamic internal stability (water, solutes, temperature) against external fluctuations (BISE Multan/Lahore/FSD)."
+      },
+      {
+        "id": "q_ch15_02",
+        "questionText": "Lizards and other reptiles excrete their insoluble nitrogenous wastes primarily in the form of:",
+        "options": [
+          "Urea",
+          "Uric Acid",
+          "Creatinine",
+          "Ammonia"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Reptiles (including lizards), birds, and land snails are uricotelic and excrete uric acid paste requiring minimal water (~1 mL per gram of nitrogen) (BISE GRW)."
+      },
+      {
+        "id": "q_ch15_03",
+        "questionText": "How much water is required for the excretion of one gram of ammonia nitrogen in ammonotelic animals?",
+        "options": [
+          "50 ml",
+          "100 ml",
+          "250 ml",
+          "500 ml"
+        ],
+        "correctOption": 3,
+        "points": 1,
+        "explanation": "1 gram of ammonia nitrogen requires approximately 500 ml of water to dilute and prevent cellular toxicity (BISE FSD/Multan)."
+      },
+      {
+        "id": "q_ch15_04",
+        "questionText": "In terrestrial insects and arthropods, Malpighian tubules remove metabolic nitrogenous wastes directly from the:",
+        "options": [
+          "Blood",
+          "Hemolymph",
+          "Foregut",
+          "Lymph"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Insects have an open circulatory system; Malpighian tubules are suspended in hemolymph sinuses and absorb wastes into the hindgut (BISE Lahore/Sargodha)."
+      },
+      {
+        "id": "q_ch15_05",
+        "questionText": "Calcium oxalate type of kidney stones accounts for approximately what percentage of all kidney stone incidences?",
+        "options": [
+          "10%",
+          "15%",
+          "70%",
+          "85%"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Calcium oxalate stones account for 70% of kidney stones, while calcium phosphate accounts for 15% and uric acid for 10% (BISE FSD/RWP)."
+      },
+      {
+        "id": "q_ch15_06",
+        "questionText": "Bats lack sweat glands; which of the following fluids do they use for evaporative heat dissipation in warm temperatures?",
+        "options": [
+          "Sweat Only",
+          "Saliva and Urine",
+          "Milk",
+          "Blood"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Bats lack sweat glands and lick their body with saliva or use urine for evaporative cooling (BISE Lahore/Bahawalpur)."
+      },
+      {
+        "id": "q_ch15_07",
+        "questionText": "Plants growing in salt marshes or saline soils close to the sea are physiologically adapted as:",
+        "options": [
+          "Hydrophytes",
+          "Mesophytes",
+          "Xerophytes",
+          "Halophytes"
+        ],
+        "correctOption": 3,
+        "points": 1,
+        "explanation": "Halophytes live in high-salinity habitats and actively transport salts into vacuoles to lower their internal water potential (BISE Multan/FSD)."
+      },
+      {
+        "id": "q_ch15_08",
+        "questionText": "Leaves that turn yellow in autumn and drop off to rid the plant of accumulated heavy metals and pigmented metabolic wastes are termed:",
+        "options": [
+          "Phylloclades",
+          "Excretophores",
+          "Petioles",
+          "Hydathodes"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Autumnal yellow leaves act as excretophores, sequestering metabolic wastes and toxic heavy metals out of the plant upon abscission (From Subjective LQ-01)."
+      },
+      {
+        "id": "q_ch15_09",
+        "questionText": "In tomato plants, excess calcium and other cellular wastes are rendered harmless by being precipitated into crystal formations of:",
+        "options": [
+          "Calcium carbonate in chloroplasts",
+          "Calcium oxalate in vacuoles",
+          "Silica in cell walls",
+          "Starch in leucoplasts"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Plant vacuoles store organic and inorganic wastes, precipitating excess calcium into harmless calcium oxalate crystals (From Subjective LQ-01)."
+      },
+      {
+        "id": "q_ch15_10",
+        "questionText": "The dark, dense central non-conducting wood in old trees where trees sequester chemical wastes and resins is called:",
+        "options": [
+          "Sapwood",
+          "Heartwood (Ebony)",
+          "Bark",
+          "Periderm"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "In older stems, active xylem becomes heartwood (ebony) as it ceases water transport and accumulates metabolic wastes, oils, and tannins (From Subjective LQ-01)."
+      },
+      {
+        "id": "q_ch15_11",
+        "questionText": "The phenomenon where plants (like conifers) actively secrete toxic chemical compounds from roots into the surrounding soil to inhibit competing plants is:",
+        "options": [
+          "Allelopathy",
+          "Anhydrobiosis",
+          "Guttation",
+          "Photoperiodism"
+        ],
+        "correctOption": 0,
+        "points": 1,
+        "explanation": "Roots of certain plants actively secrete chemical compounds into the soil to inhibit the growth of nearby plant species via allelopathy (From Subjective LQ-01)."
+      },
+      {
+        "id": "q_ch15_12",
+        "questionText": "In the human nephron, high hydrostatic pressure required for glomerular pressure filtration is generated because the:",
+        "options": [
+          "Afferent arteriole is narrower than the efferent arteriole",
+          "Efferent arteriole is narrower than the afferent arteriole",
+          "Bowman's capsule has a thick impermeable membrane",
+          "Loop of Henle pumps sodium into the glomerulus"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "The efferent arteriole is narrower than the afferent arteriole, creating high hydrostatic pressure (~55 mmHg) in the glomerulus that drives pressure filtration (From Subjective LQ-02)."
+      },
+      {
+        "id": "q_ch15_13",
+        "questionText": "Which section of the human nephron is responsible for the selective reabsorption of approximately 80% of the glomerular filtrate, including all glucose and amino acids?",
+        "options": [
+          "Proximal Convoluted Tubule (PCT)",
+          "Descending limb of Loop of Henle",
+          "Distal Convoluted Tubule (DCT)",
+          "Collecting Duct"
+        ],
+        "correctOption": 0,
+        "points": 1,
+        "explanation": "The Proximal Convoluted Tubule (PCT) selectively reabsorbs ~80% of the filtrate, including 100% of essential nutrients (glucose, amino acids) and vitamins (From Subjective LQ-02)."
+      },
+      {
+        "id": "q_ch15_14",
+        "questionText": "In the counter-current multiplier system of the human kidney, the thick ascending limb of the Loop of Henle is:",
+        "options": [
+          "Permeable to water but impermeable to sodium ions",
+          "Impermeable to water and actively transports Na+ and Cl- into interstitial fluid",
+          "Permeable to both urea and water",
+          "The primary site of non-selective pressure filtration"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "The ascending limb of Henle's loop is impermeable to water and actively pumps out Na+ and Cl- ions, creating hypertonic medullary interstitium (From Subjective LQ-02)."
+      },
+      {
+        "id": "q_ch15_15",
+        "questionText": "In the hepatic urea cycle (ornithine cycle), which immediate intermediate is hydrolyzed by the enzyme arginase to release urea?",
+        "options": [
+          "Citrulline",
+          "Arginine",
+          "Ornithine",
+          "Carbamoyl phosphate"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Arginase cleaves arginine into urea and ornithine, which recycles to combine with ammonia and carbon dioxide (From Subjective LQ-03)."
+      },
+      {
+        "id": "q_ch15_16",
+        "questionText": "The liver protects the body from toxic hydrogen peroxide (H2O2) produced during cellular metabolism by degrading it using which enzyme?",
+        "options": [
+          "Amylase",
+          "Catalase",
+          "Lipase",
+          "Pepsin"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Liver peroxisomes contain catalase, an enzyme that rapidly breaks down toxic hydrogen peroxide into water and oxygen (From Subjective LQ-03)."
+      },
+      {
+        "id": "q_ch15_17",
+        "questionText": "Animals whose internal osmolarity is isotonic to their surrounding marine environment and who do not actively adjust their osmotic state are known as:",
+        "options": [
+          "Osmoregulators",
+          "Osmoconformers",
+          "Anhydrobiotes",
+          "Endotherms"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Osmoconformers (such as hagfishes and marine invertebrates) do not actively regulate internal osmolarity because body fluids are isotonic with seawater (From Subjective SQ-02)."
+      },
+      {
+        "id": "q_ch15_18",
+        "questionText": "The physiological capability of desert animals like the kangaroo rat to tolerate severe dehydration without drinking free water by relying on metabolic water from dry seeds is called:",
+        "options": [
+          "Hibernation",
+          "Anhydrobiosis",
+          "Aestivation",
+          "Parthenogenesis"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Anhydrobiosis enables terrestrial animals (e.g. kangaroo rat) to survive without drinking liquid water by utilizing metabolic water from carbohydrate oxidation (From Subjective SQ-03)."
+      },
+      {
+        "id": "q_ch15_19",
+        "questionText": "The non-invasive clinical technique that uses high-intensity acoustic shock waves (ESWL) to pulverize kidney stones into passable sand-like debris is:",
+        "options": [
+          "Dialysis",
+          "Lithotripsy",
+          "Laparoscopy",
+          "Renal catheterization"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Extracorporeal Shock Wave Lithotripsy (ESWL) uses ultrasound/X-ray shock waves to shatter kidney stones into sand-sized particles (From Subjective SQ-04)."
+      },
+      {
+        "id": "q_ch15_20",
+        "questionText": "Non-shivering thermogenesis in mammals generates body heat without muscular twitching through the action of thyroid hormones and adrenaline on:",
+        "options": [
+          "White adipose tissue",
+          "Brown adipose tissue",
+          "Skeletal tendons",
+          "Cardiac muscle"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Non-shivering thermogenesis involves hormone-stimulated heat generation via mitochondrial uncoupling in brown fat (From Subjective SQ-05)."
+      },
+      {
+        "id": "q_ch15_21",
+        "questionText": "Peptides and chemicals released by white blood cells and bacterial endotoxins that elevate the hypothalamic thermostat above 37°C causing fever (pyrexia) are:",
+        "options": [
+          "Interferons",
+          "Pyrogens",
+          "Histamines",
+          "Antitoxins"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Pyrogens reset the hypothalamic thermostat to higher temperatures, inducing fever (pyrexia) to inhibit pathogen growth (From Subjective SQ-06)."
+      },
+      {
+        "id": "q_ch15_22",
+        "questionText": "Antidiuretic Hormone (ADH / Vasopressin) increases the permeability of which nephron segments to promote water reabsorption?",
+        "options": [
+          "Bowman's capsule and Glomerulus",
+          "Collecting Ducts and Distal Convoluted Tubules",
+          "Ascending limb of Loop of Henle",
+          "Afferent and Efferent arterioles"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "ADH acts on late DCT and collecting duct cells, promoting aquaporin insertion and water reabsorption back into the blood (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch15_23",
+        "questionText": "Freshwater bony fishes constantly take in water osmotically; how do they maintain osmotic equilibrium?",
+        "options": [
+          "Drinking continuous amounts of water and producing concentrated urine",
+          "Excreting large volumes of very dilute (hypotonic) urine and absorbing salts actively via gills",
+          "Excreting solid uric acid crystals",
+          "Accumulating large amounts of urea in their blood"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Freshwater bony fishes overcome water gain by producing copious dilute urine and active uptake of salts through specialized gill ionocytes (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch15_24",
+        "questionText": "The loss of liquid water droplets through special pores called hydathodes along the tips and margins of leaves in high humidity conditions is termed:",
+        "options": [
+          "Transpiration",
+          "Guttation",
+          "Imbibition",
+          "Evaporation"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Guttation is the exudation of xylem liquid water droplets via hydathodes caused by root pressure during nighttime or high humidity (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch15_25",
+        "questionText": "Which hormone released by the adrenal cortex acts on distal renal tubules to increase sodium (Na+) reabsorption and potassium (K+) excretion?",
+        "options": [
+          "Cortisol",
+          "Aldosterone",
+          "Epinephrine",
+          "Thyroxine"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Aldosterone stimulates sodium reabsorption in exchange for potassium secretion in the distal tubule and collecting duct, maintaining fluid balance (Important Board Past Paper Question)."
+      }
+    ],
+    "publishWindow": {
+      "isAlwaysActive": true
+    },
+    "enableFullscreenLockdown": true,
+    "targetClass": "Class VIII (PAF College Sargodha Prep)",
+    "allocation": {
+      "targetClasses": [
+        "Class VIII (PAF College Sargodha Prep)",
+        "Class 12 (Intermediate Pre-Medical)"
+      ],
+      "mode": "all",
+      "targetStudentIds": []
+    },
+    "teacherId": "tch-1792153549134",
+    "enableTabSwitchDetection": true,
+    "enableClipboardBlocking": true,
+    "createdAt": "2026-10-25T11:48:28.792Z",
+    "durationMinutes": 25,
+    "teacherName": "M.Afzal",
+    "maxStrikes": 3,
+    "updatedAt": "2026-10-25T14:05:49.991Z",
+    "publishStatus": "draft",
+    "enableAntiCheating": true,
+    "enableWebcamProctoring": true,
+    "subject": "Biology",
+    "passMarks": 10,
+    "isInQuizBank": true,
+    "id": "quiz-ch15-tch-1792153549134",
+    "shuffleQuestions": true
+  },
+  {
+    "shuffleQuestions": true,
+    "title": "Class 12 Biology: Chapter 21 — Cell Cycle (Past Papers & Board Mastery)",
+    "subject": "Biology",
+    "maxStrikes": 3,
+    "publishWindow": {
+      "isAlwaysActive": true
+    },
+    "isInQuizBank": true,
+    "enableFullscreenLockdown": true,
+    "teacherName": "M.Afzal",
+    "totalMarks": 25,
+    "enableWebcamProctoring": true,
+    "updatedAt": "2026-10-25T14:05:49.991Z",
+    "teacherId": "tch-1792153549134",
+    "enableAntiCheating": true,
+    "enableClipboardBlocking": true,
+    "enableTabSwitchDetection": true,
+    "questions": [
+      {
+        "id": "q_ch21_01",
+        "questionText": "Condensation of chromosomes during Prophase I of Meiosis reaches its maximum level in which sub-stage?",
+        "options": [
+          "Diakinesis",
+          "Diplotene",
+          "Pachytene",
+          "Zygotene"
+        ],
+        "correctOption": 0,
+        "points": 1,
+        "explanation": "During Diakinesis, chromosomes reach maximum condensation, chiasmata terminalize to chromosome tips, and nucleoli disappear (BISE GRW/Sahiwal)."
+      },
+      {
+        "id": "q_ch21_02",
+        "questionText": "Down's syndrome (Mongolism) is caused by chromosomal non-disjunction leading to trisomy of which human autosome?",
+        "options": [
+          "Chromosome 13",
+          "Chromosome 18",
+          "Chromosome 21",
+          "Chromosome 23"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Down's syndrome is an autosomal trisomy (2n+1 = 47) caused by non-disjunction of chromosome pair 21 (BISE Lahore/FSD)."
+      },
+      {
+        "id": "q_ch21_03",
+        "questionText": "During the Leptotene sub-stage of Prophase I, chromosomes appear as thin visible threads displaying bead-like local swellings known as:",
+        "options": [
+          "Centrosomes",
+          "Chromomeres",
+          "Chiasmata",
+          "Kinetochores"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Chromomeres are bead-like coiled chromatin condensations visible along chromosomes in Leptotene (From Subjective LQ-14)."
+      },
+      {
+        "id": "q_ch21_04",
+        "questionText": "The highly specific, point-for-point pairing of homologous maternal and paternal chromosomes (synapsis) occurs during which stage of Prophase I?",
+        "options": [
+          "Leptotene",
+          "Zygotene",
+          "Pachytene",
+          "Diplotene"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Zygotene is characterized by synapsis, where homologous chromosomes pair lengthwise to form bivalents (tetrads) (From Subjective LQ-14)."
+      },
+      {
+        "id": "q_ch21_05",
+        "questionText": "Crossing over, the physical exchange of non-sister chromatid genetic segments between homologous chromosomes, takes place during:",
+        "options": [
+          "Leptotene",
+          "Zygotene",
+          "Pachytene",
+          "Diakinesis"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "In Pachytene, non-sister chromatids of homologous chromosomes exchange segments at chiasmata, producing genetic recombination (From Subjective LQ-14)."
+      },
+      {
+        "id": "q_ch21_06",
+        "questionText": "Homologous chromosomes begin to repel and separate from each other, remaining connected only at points of crossing over (chiasmata), during:",
+        "options": [
+          "Pachytene",
+          "Diplotene",
+          "Diakinesis",
+          "Zygotene"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Diplotene begins when synaptic forces dissolve and paired homologous chromosomes repel each other except at chiasmata (From Subjective LQ-14)."
+      },
+      {
+        "id": "q_ch21_07",
+        "questionText": "In the Diakinesis stage of meiotic Prophase I, the shifting and sliding of chiasmata from centromeric regions toward the chromosome ends is called:",
+        "options": [
+          "Synapsis",
+          "Involution",
+          "Terminalization",
+          "Disjunction"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Terminalization is the displacement of chiasmata from the centromere towards the ends of chromosomes during Diakinesis (From Subjective LQ-14)."
+      },
+      {
+        "id": "q_ch21_08",
+        "questionText": "The failure of homologous chromosomes to separate during Meiosis I or sister chromatids during Meiosis II is called:",
+        "options": [
+          "Crossing over",
+          "Non-disjunction",
+          "Transcription",
+          "Polymerization"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Non-disjunction is the failure of chromosome separation at anaphase, resulting in gametes with 2n+1 or 2n-1 chromosome numbers (From Subjective LQ-15)."
+      },
+      {
+        "id": "q_ch21_09",
+        "questionText": "A human male exhibiting tall stature, enlarged breast tissue (gynecomastia), small testes, and azoospermia with a 47, XXY karyotype has:",
+        "options": [
+          "Turner's syndrome",
+          "Klinefelter's syndrome",
+          "Down's syndrome",
+          "Edward's syndrome"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Klinefelter's syndrome (47, XXY) affects phenotypic males with testicular atrophy, sterility, and gynecomastia (From Subjective LQ-15 & SQ-29)."
+      },
+      {
+        "id": "q_ch21_10",
+        "questionText": "A phenotypic female with a 45, XO karyotype presenting with short stature, webbed neck, missing ovaries, and primary amenorrhea suffers from:",
+        "options": [
+          "Klinefelter's syndrome",
+          "Turner's syndrome",
+          "Patau's syndrome",
+          "Super female syndrome (XXX)"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Turner's syndrome (45, XO) is a sex chromosome monosomy resulting in phenotypic females with streak ovaries and webbed neck (From Subjective LQ-15 & SQ-29)."
+      },
+      {
+        "id": "q_ch21_11",
+        "questionText": "The risk of non-disjunction causing Down's syndrome increases markedly with advancing maternal age, reaching approximately 1 in 40 births when the mother is:",
+        "options": [
+          "Under 20 years",
+          "Between 25 and 30 years",
+          "Between 30 and 35 years",
+          "Above 40 years"
+        ],
+        "correctOption": 3,
+        "points": 1,
+        "explanation": "Maternal age over 40 dramatically elevates non-disjunction risk to 1 in 40 births due to aged primary oocytes arrested since birth (From Subjective LQ-15)."
+      },
+      {
+        "id": "q_ch21_12",
+        "questionText": "Genetically programmed cellular suicide wherein a dying cell shrinks, condenses its chromatin, and is phagocytosed without provoking tissue inflammation is:",
+        "options": [
+          "Necrosis",
+          "Apoptosis",
+          "Lysis",
+          "Ulceration"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Apoptosis is programmed cell death: the cell shrinks, forms apoptotic blebs, and is phagocytosed cleanly without inflammation (From Subjective SQ-27)."
+      },
+      {
+        "id": "q_ch21_13",
+        "questionText": "Accidental cell death resulting from acute injury, severe infection, or hypoxia characterized by cellular swelling, membrane rupture, and intense local inflammation is:",
+        "options": [
+          "Apoptosis",
+          "Autophagy",
+          "Necrosis",
+          "Synapsis"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Necrosis is accidental cell death caused by trauma/toxins; cells swell, lyse, and release enzymes causing severe inflammatory response (From Subjective SQ-27)."
+      },
+      {
+        "id": "q_ch21_14",
+        "questionText": "During human embryological limb morphogenesis, the sculpting and separation of individual digits (fingers and toes) is mediated by:",
+        "options": [
+          "Rapid mitotic division of epidermal cells",
+          "Programmed cell death (Apoptosis) of interdigital webbing",
+          "Necrotic breakdown due to oxygen deprivation",
+          "Unequal meiotic cross-over events"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Apoptosis removes the interdigital tissue webs during human embryo hand and foot development (From Subjective SQ-27)."
+      },
+      {
+        "id": "q_ch21_15",
+        "questionText": "The complete mitotic apparatus in an animal cell consists of two radiating asters around centrosomes and the:",
+        "options": [
+          "Nuclear envelope",
+          "Mitotic spindle fibers",
+          "Phragmoplast",
+          "Cleavage furrow"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "The mitotic apparatus comprises two asters and the mitotic spindle fibers (kinetochore and polar microtubules) (From Subjective SQ-28)."
+      },
+      {
+        "id": "q_ch21_16",
+        "questionText": "The specialized spindle microtubules that attach directly to the protein disk situated at the centromere of each condensed chromosome are:",
+        "options": [
+          "Astral microtubules",
+          "Polar microtubules",
+          "Kinetochore microtubules",
+          "Intercalated microtubules"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Kinetochore microtubules attach to the kinetochore protein complex on centromeres to align and separate sister chromatids (From Subjective SQ-28)."
+      },
+      {
+        "id": "q_ch21_17",
+        "questionText": "In which sub-phase of the eukaryotic cell cycle interphase does DNA replication and histone synthesis take place?",
+        "options": [
+          "G1 phase",
+          "S phase (Synthesis)",
+          "G2 phase",
+          "G0 phase"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "During the S (Synthesis) phase of interphase, nuclear DNA is completely replicated and chromosome duplication occurs (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_18",
+        "questionText": "Mature human nerve cells and skeletal muscle fibers that cease cell division and remain metabolically functional exit the cell cycle into:",
+        "options": [
+          "G1 phase",
+          "G2 phase",
+          "G0 (Quiescent) phase",
+          "Prophase"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Cells that permanently or semi-permanently stop dividing enter the G0 (quiescent / non-dividing) phase (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_19",
+        "questionText": "During the G2 phase of interphase, the cell primarily synthesizes energy reserves and specialized structural proteins required for:",
+        "options": [
+          "DNA replication",
+          "Spindle apparatus assembly (Tubulin synthesis)",
+          "Phospholipid bilayer synthesis",
+          "Ribosome destruction"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "The G2 phase prepares the cell for mitosis by synthesizing tubulin proteins, spindle elements, and accumulating ATP (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_20",
+        "questionText": "The crucial restriction checkpoint in the eukaryotic cell cycle that commits the cell to either proceed irreversibly to DNA replication or withdraw to G0 is:",
+        "options": [
+          "G1/S Checkpoint",
+          "G2/M Checkpoint",
+          "Metaphase Checkpoint (M Checkpoint)",
+          "Cytokinesis Checkpoint"
+        ],
+        "correctOption": 0,
+        "points": 1,
+        "explanation": "The G1/S checkpoint (restriction point) determines whether the cell has sufficient resources and intact DNA before committing to replication (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_21",
+        "questionText": "In dividing plant cells, cytokinesis occurs through the assembly of Golgi-derived pectin vesicles across the equatorial plane to form a:",
+        "options": [
+          "Cleavage furrow",
+          "Phragmoplast (Cell plate)",
+          "Desmosome",
+          "Tonoplast"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "In plant cells, cytokinesis is mediated by the phragmoplast, which fuses Golgi-derived vesicles into the new cell plate (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_22",
+        "questionText": "During which stage of mitosis do sister chromatids synchronously separate at their centromeres and migrate toward opposite spindle poles?",
+        "options": [
+          "Prophase",
+          "Metaphase",
+          "Anaphase",
+          "Telophase"
+        ],
+        "correctOption": 2,
+        "points": 1,
+        "explanation": "Anaphase begins when centromeres divide and sister chromatids are pulled apart as individual daughter chromosomes to opposite poles (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_23",
+        "questionText": "At which mitotic stage do all duplicated chromosomes become maximally condensed and aligned along the equatorial plane of the spindle?",
+        "options": [
+          "Prophase",
+          "Metaphase",
+          "Anaphase",
+          "Telophase"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "During Metaphase, kinetochore fibers orient all chromosomes at the equatorial/metaphase plate midway between the two poles (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_24",
+        "questionText": "The master molecular engine driving the cell through different checkpoints of the cell cycle is composed of heterodimeric complexes of:",
+        "options": [
+          "Actin and Myosin",
+          "Cyclins and Cyclin-Dependent Kinases (Cdks)",
+          "Hemoglobin and Transferrin",
+          "Insulin and Glucagon"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Cell cycle transitions are regulated by Cyclin proteins binding to and activating Cyclin-Dependent Kinases (Cdks) (Important Board Past Paper Question)."
+      },
+      {
+        "id": "q_ch21_25",
+        "questionText": "Uncontrolled, uninhibited mitotic cell division caused by mutations in proto-oncogenes and tumor suppressor genes that invade neighboring tissues is termed:",
+        "options": [
+          "Benign hypertrophy",
+          "Malignancy (Cancer)",
+          "Contact inhibition",
+          "Senescence"
+        ],
+        "correctOption": 1,
+        "points": 1,
+        "explanation": "Cancer/malignancy is characterized by breakdown of cell cycle controls, loss of contact inhibition, and autonomous proliferation (Important Board Past Paper Question)."
+      }
+    ],
+    "durationMinutes": 25,
+    "targetClass": "Class VIII (PAF College Sargodha Prep)",
+    "description": "Comprehensive 25-MCQ test covering BISE past papers, repeating board questions, and subjective concepts for Chapter 21 (Cell Cycle). Includes Interphase (G1, S, G2, G0), Mitosis phases, Meiosis I Prophase sub-stages, Non-disjunction syndromes, Mitotic apparatus, and Apoptosis vs Necrosis.",
+    "allocation": {
+      "targetClasses": [
+        "Class VIII (PAF College Sargodha Prep)",
+        "Class 12 (Intermediate Pre-Medical)"
+      ],
+      "mode": "all",
+      "targetStudentIds": []
+    },
+    "id": "quiz-ch21-tch-1792153549134",
+    "passMarks": 10,
+    "publishStatus": "draft",
+    "createdAt": "2026-10-25T11:48:28.792Z"
+  }
+]
