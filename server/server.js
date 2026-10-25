@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import authRouter from './routes/auth.js';
@@ -46,20 +47,37 @@ app.use('/api/submissions', submissionsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/seed', seedRouter);
 
-// Root Welcome Endpoint
-app.get('/', (req, res) => {
-  res.send(`
-    <html>
-      <head><title>CCA Assessment Portal API</title></head>
-      <body style="font-family: sans-serif; text-align: center; padding: 4rem;">
-        <h1 style="color: #0f172a;">Cadets Coaching Academy Backend API</h1>
-        <p style="color: #475569;">Express & MongoDB Server is Online.</p>
-        <p>Database Status: <strong>${mongoose.connection.readyState === 1 ? '🟢 Connected to MongoDB' : '🟡 Waiting for MONGODB_URI connection string'}</strong></p>
-        <p><a href="/api/health">Check API Health</a></p>
-      </body>
-    </html>
-  `);
-});
+// Serve frontend static build if available
+const clientBuildPath = path.join(__dirname, 'public');
+if (fs.existsSync(clientBuildPath)) {
+  app.use(express.static(clientBuildPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    const indexPath = path.join(clientBuildPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    next();
+  });
+} else {
+  // Root Welcome Endpoint Fallback
+  app.get('/', (req, res) => {
+    res.send(`
+      <html>
+        <head><title>CCA Assessment Portal API</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 4rem;">
+          <h1 style="color: #0f172a;">Cadets Coaching Academy Backend API</h1>
+          <p style="color: #475569;">Express & MongoDB Server is Online.</p>
+          <p>Database Status: <strong>${mongoose.connection.readyState === 1 ? '🟢 Connected to MongoDB' : '🟡 Waiting for MONGODB_URI connection string'}</strong></p>
+          <p><a href="/api/health">Check API Health</a></p>
+        </body>
+      </html>
+    `);
+  });
+}
 
 // Global 404 Handler
 app.use((req, res) => {
