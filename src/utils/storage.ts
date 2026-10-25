@@ -53,26 +53,27 @@ const STORAGE_KEYS = {
 };
 
 const SCHEMA_VERSION_KEY = 'cca_schema_version';
-const CURRENT_SCHEMA_VERSION = 'v3';
+const CURRENT_SCHEMA_VERSION = 'v4_atlas_ssot';
 
 export const migrateStorageSchema = (): void => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
     const currentVer = localStorage.getItem(SCHEMA_VERSION_KEY);
     if (currentVer !== CURRENT_SCHEMA_VERSION) {
-      // 1. Wipe stale deletion filter lists so master seed data and fresh cloud data populate
+      // 1. Wipe stale deletion filter lists so fresh cloud data populates
       localStorage.removeItem(STORAGE_KEYS.DELETED_STUDENT_IDS);
       localStorage.removeItem(STORAGE_KEYS.DELETED_TEACHER_IDS);
       localStorage.removeItem(STORAGE_KEYS.DELETED_ADMIN_IDS);
       localStorage.removeItem(STORAGE_KEYS.DELETED_DEV_IDS);
       localStorage.removeItem(STORAGE_KEYS.DELETED_QUIZ_IDS);
 
-      // 2. Clear old cached lists so they re-initialize cleanly with master and cloud data
+      // 2. Clear old cached lists so they re-initialize cleanly with Render MongoDB Atlas SSOT
       localStorage.removeItem(STORAGE_KEYS.TEACHERS);
       localStorage.removeItem(STORAGE_KEYS.STUDENTS);
       localStorage.removeItem(STORAGE_KEYS.ADMINS);
       localStorage.removeItem(STORAGE_KEYS.DEVELOPERS);
       localStorage.removeItem(STORAGE_KEYS.QUIZZES);
+      localStorage.removeItem(STORAGE_KEYS.SUBMISSIONS);
       localStorage.removeItem('cca_last_cloud_sync_time');
 
       localStorage.setItem(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION);
@@ -1621,28 +1622,14 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         fetchAllStudents().catch(() => [] as Student[]),
       ]);
       if (remoteTeachers && remoteTeachers.length > 0) {
-        remoteTeachers.forEach((rt) => {
-          const idx = updatedTeachers.findIndex((t) => t.id === rt.id || (rt.loginId && t.loginId?.toLowerCase() === rt.loginId.toLowerCase()));
-          if (idx >= 0) {
-            updatedTeachers[idx] = { ...updatedTeachers[idx], ...rt };
-          } else {
-            updatedTeachers.push(rt);
-          }
-          tModified = true;
-          appliedCount++;
-        });
+        updatedTeachers = remoteTeachers;
+        tModified = true;
+        appliedCount += remoteTeachers.length;
       }
       if (remoteStudents && remoteStudents.length > 0) {
-        remoteStudents.forEach((rs) => {
-          const idx = updatedStudents.findIndex((s) => s.id === rs.id || (rs.loginId && s.loginId?.toLowerCase() === rs.loginId.toLowerCase()));
-          if (idx >= 0) {
-            updatedStudents[idx] = { ...updatedStudents[idx], ...rs };
-          } else {
-            updatedStudents.push(rs);
-          }
-          sModified = true;
-          appliedCount++;
-        });
+        updatedStudents = remoteStudents;
+        sModified = true;
+        appliedCount += remoteStudents.length;
       }
     } catch {
       // Offline fallback
@@ -2357,34 +2344,9 @@ export const pullAndApplyCloudQuizzes = async (): Promise<number> => {
     }
     if (!cloudQuizzes || cloudQuizzes.length === 0) return 0;
 
-    const deletedIds = getDeletedQuizIds();
-    const localQuizzes = getQuizzes();
-    let updated = [...localQuizzes];
-    let modified = false;
-    let appliedCount = 0;
-
-    for (const cq of cloudQuizzes) {
-      if (!cq.id || deletedIds.includes(cq.id)) continue;
-      const existingIdx = updated.findIndex((q) => q.id === cq.id);
-      if (existingIdx >= 0) {
-        const localTime = updated[existingIdx].updatedAt ? new Date(updated[existingIdx].updatedAt!).getTime() : 0;
-        const cloudTime = cq.updatedAt ? new Date(cq.updatedAt).getTime() : 0;
-        if (cloudTime >= localTime) {
-          updated[existingIdx] = { ...cq };
-          modified = true;
-          appliedCount++;
-        }
-      } else {
-        updated.push({ ...cq });
-        modified = true;
-        appliedCount++;
-      }
-    }
-
-    if (modified || updated.length !== localQuizzes.length) {
-      saveQuizzes(updated);
-    }
-    return appliedCount;
+    // Directly set authoritative cloud quizzes from Render MongoDB Atlas
+    saveQuizzes(cloudQuizzes);
+    return cloudQuizzes.length;
   } catch (err) {
     console.warn('pullAndApplyCloudQuizzes note:', err);
     return 0;
@@ -2403,33 +2365,10 @@ export const pullAndApplyCloudSubmissions = async (): Promise<number> => {
     } catch {
       cloudSubs = await fetchAllSubmissionsFromFirestore();
     }
-    if (!cloudSubs || cloudSubs.length === 0) return 0;
+    if (!cloudSubs) return 0;
 
-    const localSubs = getSubmissions();
-    const subMap = new Map<string, Submission>();
-    localSubs.forEach((s) => {
-      if (s.id) subMap.set(s.id, s);
-    });
-
-    let updatedCount = 0;
-    cloudSubs.forEach((cs) => {
-      if (!cs.id) return;
-      const existing = subMap.get(cs.id);
-      if (!existing) {
-        subMap.set(cs.id, cs);
-        updatedCount++;
-      } else if (JSON.stringify(existing) !== JSON.stringify(cs)) {
-        subMap.set(cs.id, { ...existing, ...cs });
-        updatedCount++;
-      }
-    });
-
-    if (updatedCount > 0) {
-      const merged = Array.from(subMap.values());
-      merged.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-      saveSubmissions(merged);
-    }
-    return updatedCount;
+    saveSubmissions(cloudSubs);
+    return cloudSubs.length;
   } catch (err) {
     console.warn('pullAndApplyCloudSubmissions notice:', err);
     return 0;

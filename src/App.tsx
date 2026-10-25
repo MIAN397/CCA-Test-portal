@@ -242,15 +242,15 @@ export function App() {
         .catch(() => {});
     };
 
-    // Initial background cloud check after render
+    // Initial immediate cloud sync with Render MongoDB Atlas
     const initialSyncTimer = setTimeout(() => {
-      runCloudSync(false);
-    }, 800);
+      runCloudSync(true);
+    }, 50);
 
-    // Periodic cloud poll (every 20 seconds, checking only single lightweight sync_state document)
+    // Periodic cloud poll (every 10 seconds)
     const pollInterval = setInterval(() => {
       runCloudSync(false);
-    }, 20000);
+    }, 10000);
 
     // Immediate sync triggers on tab focus, visibility change, or network reconnect
     const handleWindowFocus = () => {
