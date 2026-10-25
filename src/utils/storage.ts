@@ -11,8 +11,18 @@ import {
   deleteQuizFromFirestore,
   fetchAllQuizzesFromFirestore,
   fetchAllSubmissionsFromFirestore,
-  fetchSyncStateFromFirestore,
 } from '../services/firebaseSync';
+import {
+  fetchAllQuizzes,
+  createQuizOnServer,
+  updateQuizOnServer,
+  deleteQuizOnServer,
+  cloneQuizOnServer,
+  fetchAllSubmissions,
+  submitQuizToServer,
+  fetchAllTeachers,
+  fetchAllStudents,
+} from '../services/api';
 import {
   MASTER_ADMINS,
   MASTER_DEVELOPERS,
@@ -1284,6 +1294,7 @@ export const createQuiz = (
   };
   const updated = [newQuiz, ...quizzes];
   saveQuizzes(updated);
+  createQuizOnServer(newQuiz).catch((err) => console.warn('Render backend createQuiz sync notice:', err));
   syncQuizToFirestore(newQuiz).catch(() => {});
   return newQuiz;
 };
@@ -1293,6 +1304,7 @@ export const updateQuiz = (updatedQuiz: Quiz): void => {
     q.id === updatedQuiz.id ? { ...updatedQuiz, updatedAt: new Date().toISOString() } : q
   );
   saveQuizzes(quizzes);
+  updateQuizOnServer(updatedQuiz.id, updatedQuiz).catch((err) => console.warn('Render backend updateQuiz sync notice:', err));
   syncQuizToFirestore(updatedQuiz).catch(() => {});
 };
 
@@ -1303,6 +1315,7 @@ export const deleteQuiz = (id: string): void => {
   }
   const quizzes = getQuizzes().filter((q) => q.id !== id);
   saveQuizzes(quizzes);
+  deleteQuizOnServer(id).catch((err) => console.warn('Render backend deleteQuiz sync notice:', err));
   deleteQuizFromFirestore(id).catch(() => {});
 
   // Cascade Delete: Delete all submissions for this quiz
@@ -1335,6 +1348,7 @@ export const cloneQuizFromBank = (bankQuizId: string): Quiz | null => {
 
   const updated = [clonedQuiz, ...quizzes];
   saveQuizzes(updated);
+  cloneQuizOnServer(bankQuizId).catch((err) => console.warn('Render backend cloneQuiz sync notice:', err));
   syncQuizToFirestore(clonedQuiz).catch(() => {});
   return clonedQuiz;
 };
@@ -1404,6 +1418,11 @@ export const submitQuiz = (data: {
   const submissions = getSubmissions();
   const updated = [newSubmission, ...submissions];
   saveSubmissions(updated);
+
+  // Sync to Render MongoDB Backend
+  submitQuizToServer(newSubmission).catch((err) =>
+    console.warn('Render backend submitQuiz sync notice:', err)
+  );
 
   // Background non-blocking sync to Firestore
   try {
@@ -1594,6 +1613,40 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
     let sModified = false;
     let aModified = false;
     let dModified = false;
+
+    // 1. Sync teachers & students from Render MongoDB Atlas
+    try {
+      const [remoteTeachers, remoteStudents] = await Promise.all([
+        fetchAllTeachers().catch(() => [] as Teacher[]),
+        fetchAllStudents().catch(() => [] as Student[]),
+      ]);
+      if (remoteTeachers && remoteTeachers.length > 0) {
+        remoteTeachers.forEach((rt) => {
+          const idx = updatedTeachers.findIndex((t) => t.id === rt.id || (rt.loginId && t.loginId?.toLowerCase() === rt.loginId.toLowerCase()));
+          if (idx >= 0) {
+            updatedTeachers[idx] = { ...updatedTeachers[idx], ...rt };
+          } else {
+            updatedTeachers.push(rt);
+          }
+          tModified = true;
+          appliedCount++;
+        });
+      }
+      if (remoteStudents && remoteStudents.length > 0) {
+        remoteStudents.forEach((rs) => {
+          const idx = updatedStudents.findIndex((s) => s.id === rs.id || (rs.loginId && s.loginId?.toLowerCase() === rs.loginId.toLowerCase()));
+          if (idx >= 0) {
+            updatedStudents[idx] = { ...updatedStudents[idx], ...rs };
+          } else {
+            updatedStudents.push(rs);
+          }
+          sModified = true;
+          appliedCount++;
+        });
+      }
+    } catch {
+      // Offline fallback
+    }
 
     const getProfileTimestamp = (u: any): number => {
       const ts = u.updatedAt || u.recruitedAt || u.enrolledAt || u.createdAt;
@@ -2292,11 +2345,16 @@ export const pullAndApplyCloudSubscriptions = async (): Promise<number> => {
 };
 
 /**
- * Pulls any new or updated quizzes from Cloud Firestore
+ * Pulls any new or updated quizzes from Render MongoDB backend (with Firestore fallback)
  */
 export const pullAndApplyCloudQuizzes = async (): Promise<number> => {
   try {
-    const cloudQuizzes = await fetchAllQuizzesFromFirestore();
+    let cloudQuizzes: Quiz[] = [];
+    try {
+      cloudQuizzes = await fetchAllQuizzes();
+    } catch {
+      cloudQuizzes = await fetchAllQuizzesFromFirestore();
+    }
     if (!cloudQuizzes || cloudQuizzes.length === 0) return 0;
 
     const deletedIds = getDeletedQuizIds();
@@ -2311,7 +2369,7 @@ export const pullAndApplyCloudQuizzes = async (): Promise<number> => {
       if (existingIdx >= 0) {
         const localTime = updated[existingIdx].updatedAt ? new Date(updated[existingIdx].updatedAt!).getTime() : 0;
         const cloudTime = cq.updatedAt ? new Date(cq.updatedAt).getTime() : 0;
-        if (cloudTime > localTime) {
+        if (cloudTime >= localTime) {
           updated[existingIdx] = { ...cq };
           modified = true;
           appliedCount++;
@@ -2323,7 +2381,7 @@ export const pullAndApplyCloudQuizzes = async (): Promise<number> => {
       }
     }
 
-    if (modified) {
+    if (modified || updated.length !== localQuizzes.length) {
       saveQuizzes(updated);
     }
     return appliedCount;
@@ -2334,12 +2392,17 @@ export const pullAndApplyCloudQuizzes = async (): Promise<number> => {
 };
 
 /**
- * Pulls all submissions from Cloud Firestore and merges them into local storage.
+ * Pulls all submissions from Render MongoDB backend (with Firestore fallback) and merges them into local storage.
  * Ensures student test results submitted across different devices are universally visible to faculty.
  */
 export const pullAndApplyCloudSubmissions = async (): Promise<number> => {
   try {
-    const cloudSubs = await fetchAllSubmissionsFromFirestore();
+    let cloudSubs: Submission[] = [];
+    try {
+      cloudSubs = await fetchAllSubmissions();
+    } catch {
+      cloudSubs = await fetchAllSubmissionsFromFirestore();
+    }
     if (!cloudSubs || cloudSubs.length === 0) return 0;
 
     const localSubs = getSubmissions();
@@ -2374,20 +2437,11 @@ export const pullAndApplyCloudSubmissions = async (): Promise<number> => {
 };
 
 /**
- * Intelligent Master Sync that prevents runaway quota exhaustion.
- * Checks the single /app_data/sync_state document. Only pulls collections if remote version changed!
+ * Intelligent Master Sync that ensures multi-device consistency via Render MongoDB Atlas backend.
  */
-export const pullAndApplyCloudSync = async (force: boolean = false): Promise<boolean> => {
+export const pullAndApplyCloudSync = async (_force: boolean = false): Promise<boolean> => {
   try {
-    const syncState = await fetchSyncStateFromFirestore();
-    const lastLocalSync = localStorage.getItem('cca_last_cloud_sync_time');
-
-    if (!force && syncState?.lastSyncedAt && lastLocalSync && syncState.lastSyncedAt === lastLocalSync) {
-      // Nothing changed in cloud, skip fetching all collections
-      return false;
-    }
-
-    // Pull collections in parallel
+    // Pull collections in parallel from Render MongoDB
     const [pCount, qCount, sCount, subCount] = await Promise.all([
       pullAndApplyCloudProfiles(),
       pullAndApplyCloudQuizzes(),
@@ -2395,12 +2449,7 @@ export const pullAndApplyCloudSync = async (force: boolean = false): Promise<boo
       pullAndApplyCloudSubmissions(),
     ]);
 
-    if (syncState?.lastSyncedAt) {
-      localStorage.setItem('cca_last_cloud_sync_time', syncState.lastSyncedAt);
-    } else {
-      localStorage.setItem('cca_last_cloud_sync_time', new Date().toISOString());
-    }
-
+    localStorage.setItem('cca_last_cloud_sync_time', new Date().toISOString());
     return (pCount + qCount + sCount + subCount) > 0;
   } catch (err) {
     console.warn('pullAndApplyCloudSync notice:', err);
