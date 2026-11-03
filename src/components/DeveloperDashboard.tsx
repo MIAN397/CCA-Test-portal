@@ -15,6 +15,7 @@ import {
   BookOpen,
   Award,
   Plus,
+  UserPlus,
   Trash2,
   Edit2,
   LogIn,
@@ -39,6 +40,7 @@ interface DeveloperDashboardProps {
   quizzes: Quiz[];
   submissions: Submission[];
   onOpenCreateProfileModal: () => void;
+  onOpenRecruitTeacher?: () => void;
   onEditProfile: (role: UserRole, data: any) => void;
   onDeleteProfile: (role: UserRole, id: string) => void;
   onImpersonateUser: (role: UserRole, userObj: any) => void;
@@ -59,6 +61,7 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
   quizzes,
   submissions,
   onOpenCreateProfileModal,
+  onOpenRecruitTeacher,
   onEditProfile,
   onDeleteProfile,
   onImpersonateUser,
@@ -279,6 +282,17 @@ export const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({
                 <Plus size={16} />
                 <span>Add Profile</span>
               </button>
+              {onOpenRecruitTeacher && (
+                <button
+                  type="button"
+                  className="btn btn-gold btn-sm"
+                  onClick={onOpenRecruitTeacher}
+                  title="Directly recruit and provision a Faculty Teacher profile"
+                >
+                  <UserPlus size={16} />
+                  <span>Recruit Teacher</span>
+                </button>
+              )}
               {onSyncToCloud && (
                 <button
                   type="button"

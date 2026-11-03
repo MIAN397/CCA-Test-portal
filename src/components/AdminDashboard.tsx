@@ -169,19 +169,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Drilldown: <strong>Teacher Name &rarr; Class &rarr; Subject &rarr; Test # &rarr; Student Details & Scores</strong>
               </p>
             </div>
-            <div style={{ position: 'relative', width: '260px' }}>
-              <Search
-                size={16}
-                style={{ position: 'absolute', left: '10px', top: '10px', color: '#94a3b8' }}
-              />
-              <input
-                type="text"
-                className="form-input"
-                style={{ paddingLeft: '32px' }}
-                placeholder="Search teacher, class or subject..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', width: '260px' }}>
+                <Search
+                  size={16}
+                  style={{ position: 'absolute', left: '10px', top: '10px', color: '#94a3b8' }}
+                />
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ paddingLeft: '32px' }}
+                  placeholder="Search teacher, class or subject..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={onOpenRecruitModal}>
+                <Plus size={16} />
+                <span>Recruit Teacher</span>
+              </button>
             </div>
           </div>
 

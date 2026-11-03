@@ -84,12 +84,14 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || !loginId.trim()) {
-      alert('Please fill in teacher name, email, and login ID.');
+    if (!name.trim() || !loginId.trim()) {
+      alert('Please fill in teacher name and login ID.');
       return;
     }
 
     const cleanLogin = loginId.trim().toLowerCase();
+    const finalEmail = email.trim() ? email.trim().toLowerCase() : `${cleanLogin}@cadetsacademy.com`;
+
     const conflict = checkLoginIdConflictAcrossAll(cleanLogin, editingTeacher?.id);
     if (conflict.isTaken) {
       setLoginIdError(`Username already taken (${conflict.roleName}: ${conflict.existingName}). Please choose a unique Login ID.`);
@@ -97,7 +99,7 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
       return;
     }
 
-    const isAfzal = cleanLogin === 'afzal@ccap.com' || email.trim().toLowerCase() === 'afzal@ccap.com';
+    const isAfzal = cleanLogin === 'afzal@ccap.com' || finalEmail === 'afzal@ccap.com';
     let finalPassword = password.trim() || editingTeacher?.password || '';
     if (isAfzal && (!finalPassword || finalPassword === 'password123')) {
       finalPassword = 'Afzal123/';
@@ -109,7 +111,7 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
 
     onSave({
       name: name.trim(),
-      email: email.trim().toLowerCase(),
+      email: finalEmail,
       phone: phone.trim(),
       loginId: cleanLogin,
       password: finalPassword,
@@ -139,7 +141,16 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: '1 1 auto',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           <div className="modal-body" data-lenis-prevent="true">
             <div className="form-row">
               <div className="form-group">
@@ -156,14 +167,13 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Email Address *</label>
+                <label className="form-label">Email Address</label>
                 <input
                   type="email"
                   className="form-input"
-                  placeholder="e.g. asad@cadetsacademy.com"
+                  placeholder="e.g. asad@cadetsacademy.com (optional)"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
                 />
               </div>
             </div>
@@ -186,7 +196,7 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
                   type="text"
                   className={`form-input ${loginIdError ? 'border-red-500' : ''}`}
                   style={loginIdError ? { borderColor: '#ef4444', backgroundColor: '#fef2f2' } : {}}
-                  placeholder="e.g. asad_math or afzal@ccap.com"
+                  placeholder="e.g. asad_math or sir_asad"
                   value={loginId}
                   onChange={(e) => handleLoginIdChange(e.target.value)}
                   required
@@ -198,18 +208,18 @@ export const RecruitTeacherModal: React.FC<RecruitTeacherModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">{editingTeacher ? 'Password (leave blank to keep current)' : 'Password *'}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder={editingTeacher ? 'Leave blank to preserve current' : 'Enter account password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required={!editingTeacher}
-                />
-              </div>
+            <div className="form-group" style={{ marginTop: '0.25rem' }}>
+              <label className="form-label">{editingTeacher ? 'Password (leave blank to keep current)' : 'Password *'}</label>
+              <input
+                type="text"
+                className="form-input font-mono"
+                placeholder={editingTeacher ? 'Leave blank to preserve current' : 'Enter account password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required={!editingTeacher}
+              />
             </div>
 
             {/* Class Creation Lifetime Quota Limit */}

@@ -448,7 +448,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
 
-              {currentRole === 'admin' && onOpenRecruitTeacher && (
+              {(currentRole === 'admin' || currentRole === 'developer') && onOpenRecruitTeacher && (
                 <button
                   type="button"
                   className="sidebar-quick-action-btn"

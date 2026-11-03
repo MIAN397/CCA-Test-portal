@@ -162,9 +162,11 @@ export function App() {
 
     if (session.role === 'teacher') {
       const targetId = session.userId || getActiveTeacherId();
+      const targetLogin = session.loginId;
       const matchedTeacher = loadedTeachers.find(
         (t) =>
           (targetId && (t.id === targetId || t.loginId.toLowerCase() === targetId.toLowerCase())) ||
+          (targetLogin && t.loginId.toLowerCase() === targetLogin.toLowerCase()) ||
           (t.email && targetId && normalizeEmail(t.email) === normalizeEmail(targetId)) ||
           (t.email && session.googleEmail && normalizeEmail(t.email) === normalizeEmail(session.googleEmail))
       );
@@ -172,13 +174,18 @@ export function App() {
         evictSession();
         return;
       }
+      if (session.userId !== matchedTeacher.id || session.loginId !== matchedTeacher.loginId) {
+        saveAuthSession({ ...session, userId: matchedTeacher.id, loginId: matchedTeacher.loginId });
+      }
       setActiveTeacherIdState(matchedTeacher.id);
       setActiveTeacherId(matchedTeacher.id);
     } else if (session.role === 'student') {
       const targetId = session.userId || getActiveStudentId();
+      const targetLogin = session.loginId;
       const matchedStudent = loadedStudents.find(
         (s) =>
           (targetId && (s.id === targetId || s.loginId?.toLowerCase() === targetId.toLowerCase())) ||
+          (targetLogin && s.loginId?.toLowerCase() === targetLogin.toLowerCase()) ||
           (s.email && targetId && normalizeEmail(s.email) === normalizeEmail(targetId)) ||
           (s.email && session.googleEmail && normalizeEmail(s.email) === normalizeEmail(session.googleEmail))
       );
@@ -186,29 +193,42 @@ export function App() {
         evictSession();
         return;
       }
+      if (session.userId !== matchedStudent.id || session.loginId !== matchedStudent.loginId) {
+        saveAuthSession({ ...session, userId: matchedStudent.id, loginId: matchedStudent.loginId });
+      }
       setActiveStudentIdState(matchedStudent.id);
       setActiveStudentId(matchedStudent.id);
     } else if (session.role === 'admin') {
+      const targetLogin = session.loginId;
       const matchedAdmin = loadedAdmins.find(
         (a) =>
-          (!session.userId && !session.googleEmail) ||
+          (!session.userId && !session.googleEmail && !targetLogin) ||
           (session.userId && (a.id === session.userId || a.loginId.toLowerCase() === session.userId.toLowerCase())) ||
+          (targetLogin && a.loginId.toLowerCase() === targetLogin.toLowerCase()) ||
           (a.email && session.googleEmail && normalizeEmail(a.email) === normalizeEmail(session.googleEmail))
       );
       if (!matchedAdmin) {
         evictSession();
         return;
       }
+      if (session.userId !== matchedAdmin.id || session.loginId !== matchedAdmin.loginId) {
+        saveAuthSession({ ...session, userId: matchedAdmin.id, loginId: matchedAdmin.loginId });
+      }
     } else if (session.role === 'developer') {
+      const targetLogin = session.loginId;
       const matchedDev = loadedDevs.find(
         (d) =>
-          (!session.userId && !session.googleEmail) ||
+          (!session.userId && !session.googleEmail && !targetLogin) ||
           (session.userId && (d.id === session.userId || d.loginId.toLowerCase() === session.userId.toLowerCase())) ||
+          (targetLogin && d.loginId.toLowerCase() === targetLogin.toLowerCase()) ||
           (d.email && session.googleEmail && normalizeEmail(d.email) === normalizeEmail(session.googleEmail))
       );
       if (!matchedDev) {
         evictSession();
         return;
+      }
+      if (session.userId !== matchedDev.id || session.loginId !== matchedDev.loginId) {
+        saveAuthSession({ ...session, userId: matchedDev.id, loginId: matchedDev.loginId });
       }
     }
 
@@ -326,6 +346,7 @@ export function App() {
       isAuthenticated: true,
       role,
       userId: userObj?.id,
+      loginId: userObj?.loginId,
       authProvider: extraAuth?.authProvider || 'password',
       googleEmail: extraAuth?.googleEmail,
       googlePicture: extraAuth?.googlePicture,
@@ -517,11 +538,11 @@ export function App() {
           startDate: now.toISOString(),
           expiryDate: expiry.toISOString(),
           paymentMethod: 'cash',
-          transactionRef: 'ADMIN-PROVISION',
+          transactionRef: currentRole === 'developer' ? 'DEVELOPER-PROVISION' : 'ADMIN-PROVISION',
           activatedAt: now.toISOString(),
           verifiedAt: now.toISOString(),
-          verifiedBy: 'ADMIN',
-          notes: `Active validity configured for ${teacherData.validityDays} days by Admin`,
+          verifiedBy: currentRole === 'developer' ? 'DEVELOPER' : 'ADMIN',
+          notes: `Active validity configured for ${teacherData.validityDays} days by ${currentRole === 'developer' ? 'Developer' : 'Admin'}`,
         };
         saveUserSubscription(updatedSub);
       }
@@ -936,6 +957,10 @@ export function App() {
             quizzes={quizzes}
             submissions={submissions}
             onOpenCreateProfileModal={handleOpenCreateProfileModal}
+            onOpenRecruitTeacher={() => {
+              setEditingTeacher(null);
+              setIsRecruitTeacherModalOpen(true);
+            }}
             onEditProfile={handleEditAnyProfile}
             onDeleteProfile={handleDeleteAnyProfile}
             onImpersonateUser={handleImpersonateUser}

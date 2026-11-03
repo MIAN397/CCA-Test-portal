@@ -646,6 +646,28 @@ export const Login: React.FC<LoginProps> = ({
     );
     const localMatchedUser = matchedTeacher || matchedStudent || matchedAdmin || matchedDev;
 
+    // Fast-path: If valid credentials match an active local profile, authenticate immediately without network delay
+    if (matchedAdmin && matchedAdmin.password && trimmedPass === matchedAdmin.password) {
+      onLoginSuccess('admin', matchedAdmin);
+      setIsAuthenticating(false);
+      return;
+    }
+    if (matchedDev && matchedDev.password && trimmedPass === matchedDev.password) {
+      onLoginSuccess('developer', matchedDev);
+      setIsAuthenticating(false);
+      return;
+    }
+    if (matchedTeacher && matchedTeacher.password && trimmedPass === matchedTeacher.password) {
+      onLoginSuccess('teacher', matchedTeacher);
+      setIsAuthenticating(false);
+      return;
+    }
+    if (matchedStudent && matchedStudent.password && trimmedPass === matchedStudent.password) {
+      onLoginSuccess('student', matchedStudent);
+      setIsAuthenticating(false);
+      return;
+    }
+
     // 1. Authoritative Cloud Firestore Verification: Query cloud while protecting custom passwords
     try {
       let cloudProfile = await fetchProfileByLoginId(trimmedLogin);

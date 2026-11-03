@@ -194,7 +194,16 @@ export const EnrollStudentModal: React.FC<EnrollStudentModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: '1 1 auto',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           <div className="modal-body" data-lenis-prevent="true">
             <div className="form-group">
               <label className="form-label">Student Full Name *</label>

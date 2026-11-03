@@ -218,7 +218,16 @@ export const ManageProfileModal: React.FC<ManageProfileModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: '1 1 auto',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           <div className="modal-body" data-lenis-prevent="true">
             {/* Role Switcher */}
             {!editingProfile && (
@@ -227,7 +236,7 @@ export const ManageProfileModal: React.FC<ManageProfileModalProps> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem' }}>
                   {[
                     { id: 'admin', label: 'Administrator', color: 'badge-navy' },
-                    { id: 'teacher', label: 'Faculty Instructor', color: 'badge-purple' },
+                    { id: 'teacher', label: 'Faculty Teacher', color: 'badge-purple' },
                     { id: 'student', label: 'Cadet Student', color: 'badge-green' },
                     { id: 'developer', label: 'Master Developer', color: 'badge-gold' },
                   ].map((r) => (

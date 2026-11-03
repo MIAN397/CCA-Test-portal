@@ -1493,6 +1493,7 @@ export interface AuthSession {
   isAuthenticated: boolean;
   role: UserRole;
   userId?: string;
+  loginId?: string;
   authProvider?: 'password' | 'google';
   googleEmail?: string;
   googlePicture?: string;
@@ -1615,19 +1616,41 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
     let aModified = false;
     let dModified = false;
 
-    // 1. Sync teachers & students from Render MongoDB Atlas
+    // 1. Sync teachers & students from Render MongoDB Atlas (merging with local profiles without wiping active accounts)
     try {
       const [remoteTeachers, remoteStudents] = await Promise.all([
         fetchAllTeachers().catch(() => [] as Teacher[]),
         fetchAllStudents().catch(() => [] as Student[]),
       ]);
       if (remoteTeachers && remoteTeachers.length > 0) {
-        updatedTeachers = remoteTeachers;
+        const mergedTeachers = [...remoteTeachers];
+        for (const localT of teachers) {
+          if (!deletedTeacherIds.includes(localT.id) && !deletedTeacherIds.includes(localT.loginId.toLowerCase())) {
+            const existsInRemote = mergedTeachers.some(
+              (rt) => rt.id === localT.id || rt.loginId.toLowerCase() === localT.loginId.toLowerCase()
+            );
+            if (!existsInRemote) {
+              mergedTeachers.push(localT);
+            }
+          }
+        }
+        updatedTeachers = mergedTeachers;
         tModified = true;
         appliedCount += remoteTeachers.length;
       }
       if (remoteStudents && remoteStudents.length > 0) {
-        updatedStudents = remoteStudents;
+        const mergedStudents = [...remoteStudents];
+        for (const localS of students) {
+          if (!deletedStudentIds.includes(localS.id) && !deletedStudentIds.includes(localS.loginId.toLowerCase())) {
+            const existsInRemote = mergedStudents.some(
+              (rs) => rs.id === localS.id || rs.loginId.toLowerCase() === localS.loginId.toLowerCase()
+            );
+            if (!existsInRemote) {
+              mergedStudents.push(localS);
+            }
+          }
+        }
+        updatedStudents = mergedStudents;
         sModified = true;
         appliedCount += remoteStudents.length;
       }
@@ -1809,7 +1832,8 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         );
         if (idx >= 0) {
           const safePass = resolveSafePassword(updatedTeachers[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const merged = { ...updatedTeachers[idx], ...cloudP, password: safePass };
+          const preservedId = updatedTeachers[idx].id || cloudP.id;
+          const merged = { ...cloudP, ...updatedTeachers[idx], id: preservedId, password: safePass };
           if (JSON.stringify(updatedTeachers[idx]) !== JSON.stringify(merged)) {
             updatedTeachers[idx] = merged;
             tModified = true;
@@ -1842,13 +1866,15 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         );
         if (idx >= 0) {
           const safePass = resolveSafePassword(updatedStudents[idx].password, cloudP.password, cleanLogin, cloudP.email);
+          const preservedId = updatedStudents[idx].id || cloudP.id;
           const merged = {
-            ...updatedStudents[idx],
             ...cloudP,
+            ...updatedStudents[idx],
+            id: preservedId,
             password: safePass,
-            enrolledByTeacherId: cloudP.enrolledByTeacherId || updatedStudents[idx].enrolledByTeacherId,
-            enrolledClasses: cloudP.enrolledClasses || updatedStudents[idx].enrolledClasses,
-            subscription: cloudP.subscription || updatedStudents[idx].subscription,
+            enrolledByTeacherId: updatedStudents[idx].enrolledByTeacherId || cloudP.enrolledByTeacherId,
+            enrolledClasses: updatedStudents[idx].enrolledClasses || cloudP.enrolledClasses,
+            subscription: updatedStudents[idx].subscription || cloudP.subscription,
           };
           if (JSON.stringify(updatedStudents[idx]) !== JSON.stringify(merged)) {
             updatedStudents[idx] = merged;
@@ -1882,7 +1908,8 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         );
         if (idx >= 0) {
           const safePass = resolveSafePassword(updatedAdmins[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const merged = { ...updatedAdmins[idx], ...cloudP, password: safePass };
+          const preservedId = updatedAdmins[idx].id || cloudP.id;
+          const merged = { ...cloudP, ...updatedAdmins[idx], id: preservedId, password: safePass };
           if (JSON.stringify(updatedAdmins[idx]) !== JSON.stringify(merged)) {
             updatedAdmins[idx] = merged;
             aModified = true;
@@ -1915,7 +1942,8 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         );
         if (idx >= 0) {
           const safePass = resolveSafePassword(updatedDevs[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const merged = { ...updatedDevs[idx], ...cloudP, password: safePass };
+          const preservedId = updatedDevs[idx].id || cloudP.id;
+          const merged = { ...cloudP, ...updatedDevs[idx], id: preservedId, password: safePass };
           if (JSON.stringify(updatedDevs[idx]) !== JSON.stringify(merged)) {
             updatedDevs[idx] = merged;
             dModified = true;

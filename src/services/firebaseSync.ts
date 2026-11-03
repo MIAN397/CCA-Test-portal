@@ -326,7 +326,7 @@ export async function fetchGoogleUserFromFirestore(
       config.apiKey ? `?key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return null;
 
     const doc = await response.json();
@@ -400,7 +400,7 @@ export async function testFirestoreConnection(): Promise<{
       config.apiKey ? `&key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (response.status === 200) {
       return { connected: true, projectId: config.projectId, status: 'Online & Verified' };
     }
@@ -650,7 +650,7 @@ export async function fetchProfileByLoginId(
       config.apiKey ? `?key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return null;
 
     const doc = await response.json();
@@ -669,7 +669,7 @@ export async function fetchProfileByLoginId(
         const altUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents/profiles/${altId}${
           config.apiKey ? `?key=${config.apiKey}` : ''
         }`;
-        const altRes = await fetch(altUrl);
+        const altRes = await fetch(altUrl, { signal: AbortSignal.timeout(3000) });
         if (altRes.ok) {
           const altDoc = await altRes.json();
           const secondary = fromFirestoreDocument(altDoc);
@@ -700,7 +700,7 @@ export async function fetchAllProfilesWithTombstonesFromFirestore(): Promise<{
       config.apiKey ? `&key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return { active: [], deleted: [] };
 
     const data = await response.json();
@@ -835,7 +835,7 @@ export async function fetchAllSubscriptionsFromFirestore(): Promise<UserSubscrip
       config.apiKey ? `&key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -945,7 +945,7 @@ export async function fetchAllQuizzesFromFirestore(): Promise<Quiz[]> {
       config.apiKey ? `&key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -967,7 +967,7 @@ export async function fetchAllSubmissionsFromFirestore(): Promise<Submission[]> 
       config.apiKey ? `&key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return [];
 
     const data = await response.json();
@@ -992,7 +992,7 @@ export async function fetchSyncStateFromFirestore(): Promise<{
       config.apiKey ? `?key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return null;
 
     const doc = await response.json();
@@ -1039,7 +1039,7 @@ export async function fetchMasterDatabaseFromFirestore(): Promise<any | null> {
       config.apiKey ? `?key=${config.apiKey}` : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return null;
 
     const doc = await response.json();
