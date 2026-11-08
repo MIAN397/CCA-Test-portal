@@ -4,9 +4,11 @@ import {
   saveSubmissionToFirestore,
   syncProfileToFirestore,
   deleteProfileFromFirestore,
+  deleteProfileDocumentFromFirestore,
   fetchAllProfilesWithTombstonesFromFirestore,
   syncSubscriptionToFirestore,
   fetchAllSubscriptionsFromFirestore,
+  fetchProfileByLoginId,
   syncQuizToFirestore,
   deleteQuizFromFirestore,
   fetchAllQuizzesFromFirestore,
@@ -22,6 +24,7 @@ import {
   submitQuizToServer,
   fetchAllTeachers,
   fetchAllStudents,
+  updateUserOnServer,
 } from '../services/api';
 import {
   MASTER_ADMINS,
@@ -33,6 +36,7 @@ import {
   MASTER_SUBSCRIPTIONS,
 } from './masterData';
 import { normalizeEmail } from './googleAuth';
+import { isSubscriptionActive } from './subscription';
 
 const STORAGE_KEYS = {
   ADMINS: 'cca_admins_v2',
@@ -277,13 +281,27 @@ export const updateAdmin = (updatedAdmin: AdminUser): void => {
   const adminWithTimestamp: AdminUser = {
     ...updatedAdmin,
     password: resolvedPassword,
-    updatedAt: updatedAdmin.updatedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const admins =
     idx >= 0
       ? currentAdmins.map((a, i) => (i === idx ? adminWithTimestamp : a))
       : [adminWithTimestamp, ...currentAdmins];
   saveAdmins(admins);
+
+  if (existing) {
+    const oldLogin = existing.loginId.trim().toLowerCase();
+    const newLogin = updatedAdmin.loginId.trim().toLowerCase();
+    const oldEmail = existing.email?.trim().toLowerCase();
+    const newEmail = updatedAdmin.email?.trim().toLowerCase();
+    if (oldLogin && oldLogin !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldLogin).catch(() => {});
+    }
+    if (oldEmail && oldEmail !== newEmail && oldEmail !== oldLogin && oldEmail !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldEmail).catch(() => {});
+    }
+  }
+
   syncProfileToFirestore('admin', adminWithTimestamp).catch(() => {});
 };
 
@@ -396,13 +414,27 @@ export const updateDeveloper = (updatedDev: DeveloperUser): void => {
   const devWithTimestamp: DeveloperUser = {
     ...updatedDev,
     password: resolvedPassword,
-    updatedAt: updatedDev.updatedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const devs =
     idx >= 0
       ? currentDevs.map((d, i) => (i === idx ? devWithTimestamp : d))
       : [devWithTimestamp, ...currentDevs];
   saveDevelopers(devs);
+
+  if (existing) {
+    const oldLogin = existing.loginId.trim().toLowerCase();
+    const newLogin = updatedDev.loginId.trim().toLowerCase();
+    const oldEmail = existing.email?.trim().toLowerCase();
+    const newEmail = updatedDev.email?.trim().toLowerCase();
+    if (oldLogin && oldLogin !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldLogin).catch(() => {});
+    }
+    if (oldEmail && oldEmail !== newEmail && oldEmail !== oldLogin && oldEmail !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldEmail).catch(() => {});
+    }
+  }
+
   syncProfileToFirestore('developer', devWithTimestamp).catch(() => {});
 };
 
@@ -684,14 +716,42 @@ export const updateTeacher = (updatedTeacher: Teacher): void => {
   const teacherWithTimestamp: Teacher = {
     ...updatedTeacher,
     password: resolvedPassword,
-    updatedAt: updatedTeacher.updatedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const teachers =
     idx >= 0
       ? currentTeachers.map((t, i) => (i === idx ? teacherWithTimestamp : t))
       : [teacherWithTimestamp, ...currentTeachers];
   saveTeachers(teachers);
+
+  if (existing) {
+    const oldLogin = existing.loginId.trim().toLowerCase();
+    const newLogin = updatedTeacher.loginId.trim().toLowerCase();
+    const oldEmail = existing.email?.trim().toLowerCase();
+    const newEmail = updatedTeacher.email?.trim().toLowerCase();
+    if (oldLogin && oldLogin !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldLogin).catch(() => {});
+    }
+    if (oldEmail && oldEmail !== newEmail && oldEmail !== oldLogin && oldEmail !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldEmail).catch(() => {});
+    }
+  }
+
   syncProfileToFirestore('teacher', teacherWithTimestamp).catch(() => {});
+  updateUserOnServer(teacherWithTimestamp.id, teacherWithTimestamp).catch(() => {});
+  if (teacherWithTimestamp.email || teacherWithTimestamp.googleId) {
+    try {
+      saveGoogleUserToFirestore({
+        googleId: teacherWithTimestamp.googleId,
+        email: teacherWithTimestamp.email || '',
+        name: teacherWithTimestamp.name,
+        role: 'teacher',
+        loginId: teacherWithTimestamp.loginId,
+        subscription: teacherWithTimestamp.subscription,
+        authProvider: teacherWithTimestamp.googleId ? 'google' : 'password',
+      }).catch(() => {});
+    } catch {}
+  }
 };
 
 export const deleteTeacher = (id: string): void => {
@@ -1072,14 +1132,29 @@ export const updateStudent = (updatedStudent: Student): void => {
     password: resolvedPassword,
     email: cleanEmail,
     enrolledClasses,
-    updatedAt: updatedStudent.updatedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   const students =
     idx >= 0
       ? currentStudents.map((s, i) => (i === idx ? studentWithTimestamp : s))
       : [studentWithTimestamp, ...currentStudents];
   saveStudents(students);
+
+  if (existing) {
+    const oldLogin = existing.loginId?.trim().toLowerCase();
+    const newLogin = updatedStudent.loginId?.trim().toLowerCase();
+    const oldEmail = existing.email?.trim().toLowerCase();
+    const newEmail = updatedStudent.email?.trim().toLowerCase();
+    if (oldLogin && oldLogin !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldLogin).catch(() => {});
+    }
+    if (oldEmail && oldEmail !== newEmail && oldEmail !== oldLogin && oldEmail !== newLogin) {
+      deleteProfileDocumentFromFirestore(oldEmail).catch(() => {});
+    }
+  }
+
   syncProfileToFirestore('student', studentWithTimestamp).catch(() => {});
+  updateUserOnServer(studentWithTimestamp.id, studentWithTimestamp).catch(() => {});
   if (studentWithTimestamp.email || studentWithTimestamp.googleId) {
     try {
       saveGoogleUserToFirestore({
@@ -1616,6 +1691,11 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
     let aModified = false;
     let dModified = false;
 
+    const getProfileTimestamp = (u: any): number => {
+      const ts = u.updatedAt || u.recruitedAt || u.enrolledAt || u.createdAt;
+      return ts ? new Date(ts).getTime() : 0;
+    };
+
     // 1. Sync teachers & students from Render MongoDB Atlas (merging with local profiles without wiping active accounts)
     try {
       const [remoteTeachers, remoteStudents] = await Promise.all([
@@ -1626,11 +1706,17 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         const mergedTeachers = [...remoteTeachers];
         for (const localT of teachers) {
           if (!deletedTeacherIds.includes(localT.id) && !deletedTeacherIds.includes(localT.loginId.toLowerCase())) {
-            const existsInRemote = mergedTeachers.some(
+            const rIdx = mergedTeachers.findIndex(
               (rt) => rt.id === localT.id || rt.loginId.toLowerCase() === localT.loginId.toLowerCase()
             );
-            if (!existsInRemote) {
+            if (rIdx === -1) {
               mergedTeachers.push(localT);
+            } else {
+              const localTs = getProfileTimestamp(localT);
+              const remoteTs = getProfileTimestamp(mergedTeachers[rIdx]);
+              if (localTs > remoteTs) {
+                mergedTeachers[rIdx] = { ...mergedTeachers[rIdx], ...localT };
+              }
             }
           }
         }
@@ -1642,11 +1728,17 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
         const mergedStudents = [...remoteStudents];
         for (const localS of students) {
           if (!deletedStudentIds.includes(localS.id) && !deletedStudentIds.includes(localS.loginId.toLowerCase())) {
-            const existsInRemote = mergedStudents.some(
+            const rIdx = mergedStudents.findIndex(
               (rs) => rs.id === localS.id || rs.loginId.toLowerCase() === localS.loginId.toLowerCase()
             );
-            if (!existsInRemote) {
+            if (rIdx === -1) {
               mergedStudents.push(localS);
+            } else {
+              const localTs = getProfileTimestamp(localS);
+              const remoteTs = getProfileTimestamp(mergedStudents[rIdx]);
+              if (localTs > remoteTs) {
+                mergedStudents[rIdx] = { ...mergedStudents[rIdx], ...localS };
+              }
             }
           }
         }
@@ -1657,11 +1749,6 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
     } catch {
       // Offline fallback
     }
-
-    const getProfileTimestamp = (u: any): number => {
-      const ts = u.updatedAt || u.recruitedAt || u.enrolledAt || u.createdAt;
-      return ts ? new Date(ts).getTime() : 0;
-    };
 
     const matchesTombstone = (u: any): boolean => {
       const uLogin = (u.loginId || '').trim().toLowerCase();
@@ -1831,15 +1918,22 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
             (cleanCloudEmail && t.email && (t.email.trim().toLowerCase() === cleanCloudEmail || normalizeEmail(t.email) === normCloudEmail))
         );
         if (idx >= 0) {
-          const safePass = resolveSafePassword(updatedTeachers[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const preservedId = updatedTeachers[idx].id || cloudP.id;
-          const merged = { ...cloudP, ...updatedTeachers[idx], id: preservedId, password: safePass };
-          if (JSON.stringify(updatedTeachers[idx]) !== JSON.stringify(merged)) {
+          const localT = updatedTeachers[idx];
+          const localTs = getProfileTimestamp(localT);
+          const cloudTs = getProfileTimestamp(cloudP);
+          const safePass = resolveSafePassword(localT.password, cloudP.password, cleanLogin, cloudP.email);
+          const preservedId = localT.id || cloudP.id;
+
+          const merged = cloudTs >= localTs
+            ? { ...localT, ...cloudP, id: preservedId, password: safePass }
+            : { ...cloudP, ...localT, id: preservedId, password: safePass };
+
+          if (JSON.stringify(localT) !== JSON.stringify(merged)) {
             updatedTeachers[idx] = merged;
             tModified = true;
             appliedCount++;
           }
-          if (safePass && safePass !== 'password123' && cloudP.password !== safePass) {
+          if (localTs > cloudTs || (safePass && safePass !== 'password123' && cloudP.password !== safePass)) {
             syncProfileToFirestore('teacher', merged).catch(() => {});
           }
         } else {
@@ -1865,23 +1959,42 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
             (cleanCloudEmail && s.email && (s.email.trim().toLowerCase() === cleanCloudEmail || normalizeEmail(s.email) === normCloudEmail))
         );
         if (idx >= 0) {
-          const safePass = resolveSafePassword(updatedStudents[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const preservedId = updatedStudents[idx].id || cloudP.id;
-          const merged = {
-            ...cloudP,
-            ...updatedStudents[idx],
-            id: preservedId,
-            password: safePass,
-            enrolledByTeacherId: updatedStudents[idx].enrolledByTeacherId || cloudP.enrolledByTeacherId,
-            enrolledClasses: updatedStudents[idx].enrolledClasses || cloudP.enrolledClasses,
-            subscription: updatedStudents[idx].subscription || cloudP.subscription,
-          };
-          if (JSON.stringify(updatedStudents[idx]) !== JSON.stringify(merged)) {
+          const localS = updatedStudents[idx];
+          const localTs = getProfileTimestamp(localS);
+          const cloudTs = getProfileTimestamp(cloudP);
+          const safePass = resolveSafePassword(localS.password, cloudP.password, cleanLogin, cloudP.email);
+          const preservedId = localS.id || cloudP.id;
+
+          const merged = cloudTs >= localTs
+            ? {
+                ...localS,
+                ...cloudP,
+                id: preservedId,
+                password: safePass,
+                enrolledByTeacherId: cloudP.enrolledByTeacherId || localS.enrolledByTeacherId,
+                enrolledClasses: (cloudP.enrolledClasses?.length || 0) >= (localS.enrolledClasses?.length || 0)
+                  ? (cloudP.enrolledClasses || localS.enrolledClasses)
+                  : (localS.enrolledClasses || cloudP.enrolledClasses),
+                subscription: cloudP.subscription || localS.subscription,
+              }
+            : {
+                ...cloudP,
+                ...localS,
+                id: preservedId,
+                password: safePass,
+                enrolledByTeacherId: localS.enrolledByTeacherId || cloudP.enrolledByTeacherId,
+                enrolledClasses: (localS.enrolledClasses?.length || 0) >= (cloudP.enrolledClasses?.length || 0)
+                  ? (localS.enrolledClasses || cloudP.enrolledClasses)
+                  : (cloudP.enrolledClasses || localS.enrolledClasses),
+                subscription: localS.subscription || cloudP.subscription,
+              };
+
+          if (JSON.stringify(localS) !== JSON.stringify(merged)) {
             updatedStudents[idx] = merged;
             sModified = true;
             appliedCount++;
           }
-          if (safePass && safePass !== 'password123' && cloudP.password !== safePass) {
+          if (localTs > cloudTs || (safePass && safePass !== 'password123' && cloudP.password !== safePass)) {
             syncProfileToFirestore('student', merged).catch(() => {});
           }
         } else {
@@ -1907,15 +2020,22 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
             (cleanCloudEmail && a.email && (a.email.trim().toLowerCase() === cleanCloudEmail || normalizeEmail(a.email) === normCloudEmail))
         );
         if (idx >= 0) {
-          const safePass = resolveSafePassword(updatedAdmins[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const preservedId = updatedAdmins[idx].id || cloudP.id;
-          const merged = { ...cloudP, ...updatedAdmins[idx], id: preservedId, password: safePass };
-          if (JSON.stringify(updatedAdmins[idx]) !== JSON.stringify(merged)) {
+          const localA = updatedAdmins[idx];
+          const localTs = getProfileTimestamp(localA);
+          const cloudTs = getProfileTimestamp(cloudP);
+          const safePass = resolveSafePassword(localA.password, cloudP.password, cleanLogin, cloudP.email);
+          const preservedId = localA.id || cloudP.id;
+
+          const merged = cloudTs >= localTs
+            ? { ...localA, ...cloudP, id: preservedId, password: safePass }
+            : { ...cloudP, ...localA, id: preservedId, password: safePass };
+
+          if (JSON.stringify(localA) !== JSON.stringify(merged)) {
             updatedAdmins[idx] = merged;
             aModified = true;
             appliedCount++;
           }
-          if (safePass && safePass !== 'password123' && cloudP.password !== safePass) {
+          if (localTs > cloudTs || (safePass && safePass !== 'password123' && cloudP.password !== safePass)) {
             syncProfileToFirestore('admin', merged).catch(() => {});
           }
         } else {
@@ -1941,15 +2061,22 @@ export const pullAndApplyCloudProfiles = async (): Promise<number> => {
             (cleanCloudEmail && d.email && (d.email.trim().toLowerCase() === cleanCloudEmail || normalizeEmail(d.email) === normCloudEmail))
         );
         if (idx >= 0) {
-          const safePass = resolveSafePassword(updatedDevs[idx].password, cloudP.password, cleanLogin, cloudP.email);
-          const preservedId = updatedDevs[idx].id || cloudP.id;
-          const merged = { ...cloudP, ...updatedDevs[idx], id: preservedId, password: safePass };
-          if (JSON.stringify(updatedDevs[idx]) !== JSON.stringify(merged)) {
+          const localD = updatedDevs[idx];
+          const localTs = getProfileTimestamp(localD);
+          const cloudTs = getProfileTimestamp(cloudP);
+          const safePass = resolveSafePassword(localD.password, cloudP.password, cleanLogin, cloudP.email);
+          const preservedId = localD.id || cloudP.id;
+
+          const merged = cloudTs >= localTs
+            ? { ...localD, ...cloudP, id: preservedId, password: safePass }
+            : { ...cloudP, ...localD, id: preservedId, password: safePass };
+
+          if (JSON.stringify(localD) !== JSON.stringify(merged)) {
             updatedDevs[idx] = merged;
             dModified = true;
             appliedCount++;
           }
-          if (safePass && safePass !== 'password123' && cloudP.password !== safePass) {
+          if (localTs > cloudTs || (safePass && safePass !== 'password123' && cloudP.password !== safePass)) {
             syncProfileToFirestore('developer', merged).catch(() => {});
           }
         } else {
@@ -2194,6 +2321,39 @@ export const saveUserSubscription = (sub: UserSubscription): void => {
   syncSubscriptionToFirestore(sub).catch(() => {});
 };
 
+/**
+ * Universal matcher between a user (student/teacher/admin/dev) and a subscription record.
+ * Handles IDs, loginIds, emails (with Gmail dot/plus normalization), Google IDs, and subscription IDs.
+ */
+export const userMatchesSub = (u: any, sub: UserSubscription): boolean => {
+  if (!u || !sub) return false;
+  const uId = (u.id || '').trim();
+  const uLogin = (u.loginId || '').trim().toLowerCase();
+  const uEmail = (u.email || '').trim().toLowerCase();
+  const uNormEmail = uEmail && uEmail.includes('@') ? normalizeEmail(uEmail) : '';
+  const uGoogleId = (u.googleId || '').trim();
+
+  const sUserId = (sub.userId || '').trim();
+  const sLogin = (sub.loginId || '').trim().toLowerCase();
+  const sEmail = (sub.userEmail || '').trim().toLowerCase();
+  const sNormEmail = sEmail && sEmail.includes('@') ? normalizeEmail(sEmail) : '';
+
+  // Direct ID or loginId match
+  if (uId && sUserId && uId === sUserId) return true;
+  if (uLogin && sLogin && uLogin === sLogin) return true;
+  if (u.subscription && u.subscription.id === sub.id) return true;
+
+  // Google ID match
+  if (uGoogleId && (uGoogleId === sUserId || uGoogleId === sLogin)) return true;
+
+  // Email matches
+  if (uEmail && sEmail && (uEmail === sEmail || (uNormEmail && uNormEmail === sNormEmail))) return true;
+  if (uEmail && sLogin && (uEmail === sLogin || (uNormEmail && uNormEmail === sLogin))) return true;
+  if (uLogin && sEmail && (uLogin === sEmail || (sNormEmail && uLogin === sNormEmail))) return true;
+
+  return false;
+};
+
 export const verifyUserSubscription = (
   subId: string,
   verifiedBy: string = 'Admin'
@@ -2212,25 +2372,55 @@ export const verifyUserSubscription = (
   allSubs[idx] = verifiedSub;
   saveSubscriptions(allSubs);
 
-  // Update associated student profile
   const students = getStudents();
-  const student = students.find(
-    (s) => s.id === verifiedSub.userId || s.loginId?.toLowerCase() === verifiedSub.loginId?.toLowerCase()
-  );
-  if (student) {
-    updateStudent({ ...student, subscription: verifiedSub, updatedAt: new Date().toISOString() });
-  }
+  students.forEach((s) => {
+    if (userMatchesSub(s, verifiedSub)) {
+      updateStudent({ ...s, subscription: verifiedSub, updatedAt: new Date().toISOString() });
+    }
+  });
 
-  // Update associated teacher profile
+  let matchedTeacher = false;
   const teachers = getTeachers();
-  const teacher = teachers.find(
-    (t) => t.id === verifiedSub.userId || t.loginId?.toLowerCase() === verifiedSub.loginId?.toLowerCase()
-  );
-  if (teacher) {
-    updateTeacher({ ...teacher, subscription: verifiedSub, updatedAt: new Date().toISOString() });
+  teachers.forEach((t) => {
+    if (userMatchesSub(t, verifiedSub)) {
+      matchedTeacher = true;
+      updateTeacher({ ...t, subscription: verifiedSub, updatedAt: new Date().toISOString() });
+    }
+  });
+
+  // Sync to Cloud Firestore subscriptions collection
+  syncSubscriptionToFirestore(verifiedSub).catch(() => {});
+
+  // Sync to Cloud Firestore Google Auth users collection
+  if (verifiedSub.userEmail || verifiedSub.userId) {
+    saveGoogleUserToFirestore({
+      googleId: verifiedSub.userId,
+      email: verifiedSub.userEmail || '',
+      name: verifiedSub.userName,
+      role: matchedTeacher ? 'teacher' : 'student',
+      loginId: verifiedSub.loginId,
+      subscription: verifiedSub,
+      authProvider: 'google',
+    }).catch(() => {});
   }
 
-  syncSubscriptionToFirestore(verifiedSub).catch(() => {});
+  // Sync to Cloud Firestore profiles collection for all related identifiers
+  const identifiers = [verifiedSub.userId, verifiedSub.loginId, verifiedSub.userEmail].filter(Boolean) as string[];
+  identifiers.forEach((idf) => {
+    const cleanDocId = idf.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    fetchProfileByLoginId(cleanDocId).then((cloudP) => {
+      if (cloudP && cloudP.role) {
+        syncProfileToFirestore(cloudP.role as UserRole, {
+          ...cloudP,
+          subscription: verifiedSub,
+          updatedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  });
+
+  updateUserOnServer(verifiedSub.userId, { subscription: verifiedSub }).catch(() => {});
+
   return verifiedSub;
 };
 
@@ -2262,22 +2452,56 @@ export const extendUserSubscription = (
   saveSubscriptions(allSubs);
 
   const students = getStudents();
-  const student = students.find(
-    (s) => s.id === extendedSub.userId || s.loginId?.toLowerCase() === extendedSub.loginId?.toLowerCase()
-  );
-  if (student) {
-    updateStudent({ ...student, subscription: extendedSub, updatedAt: new Date().toISOString() });
-  }
+  students.forEach((s) => {
+    if (userMatchesSub(s, extendedSub)) {
+      updateStudent({ ...s, subscription: extendedSub, updatedAt: new Date().toISOString() });
+    }
+  });
 
+  let matchedTeacher = false;
   const teachers = getTeachers();
-  const teacher = teachers.find(
-    (t) => t.id === extendedSub.userId || t.loginId?.toLowerCase() === extendedSub.loginId?.toLowerCase()
-  );
-  if (teacher) {
-    updateTeacher({ ...teacher, subscription: extendedSub, validityDays: extendedSub.durationDays, updatedAt: new Date().toISOString() });
+  teachers.forEach((t) => {
+    if (userMatchesSub(t, extendedSub)) {
+      matchedTeacher = true;
+      updateTeacher({ ...t, subscription: extendedSub, validityDays: extendedSub.durationDays, updatedAt: new Date().toISOString() });
+    }
+  });
+
+  // Sync to Cloud Firestore subscriptions collection
+  syncSubscriptionToFirestore(extendedSub).catch(() => {});
+
+  // Sync to Cloud Firestore users collection (Google Auth accounts)
+  if (extendedSub.userEmail || extendedSub.userId) {
+    saveGoogleUserToFirestore({
+      googleId: extendedSub.userId,
+      email: extendedSub.userEmail || '',
+      name: extendedSub.userName,
+      role: matchedTeacher ? 'teacher' : 'student',
+      loginId: extendedSub.loginId,
+      subscription: extendedSub,
+      authProvider: 'google',
+    }).catch(() => {});
   }
 
-  syncSubscriptionToFirestore(extendedSub).catch(() => {});
+  // Sync to Cloud Firestore profiles collection for all related identifiers
+  const identifiers = [extendedSub.userId, extendedSub.loginId, extendedSub.userEmail].filter(Boolean) as string[];
+  identifiers.forEach((idf) => {
+    const cleanDocId = idf.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    fetchProfileByLoginId(cleanDocId).then((cloudP) => {
+      if (cloudP && cloudP.role) {
+        syncProfileToFirestore(cloudP.role as UserRole, {
+          ...cloudP,
+          subscription: extendedSub,
+          validityDays: extendedSub.durationDays,
+          updatedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  });
+
+  // Also update user on Render backend server
+  updateUserOnServer(extendedSub.userId, { subscription: extendedSub }).catch(() => {});
+
   return extendedSub;
 };
 
@@ -2296,37 +2520,63 @@ export const cancelUserSubscription = (subId: string): void => {
   saveSubscriptions(allSubs);
 
   const students = getStudents();
-  const student = students.find(
-    (s) => s.id === canceledSub.userId || s.loginId?.toLowerCase() === canceledSub.loginId?.toLowerCase()
-  );
-  if (student) {
-    updateStudent({ ...student, subscription: canceledSub, updatedAt: new Date().toISOString() });
-  }
+  students.forEach((s) => {
+    if (userMatchesSub(s, canceledSub)) {
+      updateStudent({ ...s, subscription: canceledSub, updatedAt: new Date().toISOString() });
+    }
+  });
 
   const teachers = getTeachers();
-  const teacher = teachers.find(
-    (t) => t.id === canceledSub.userId || t.loginId?.toLowerCase() === canceledSub.loginId?.toLowerCase()
-  );
-  if (teacher) {
-    updateTeacher({ ...teacher, subscription: canceledSub, updatedAt: new Date().toISOString() });
-  }
+  teachers.forEach((t) => {
+    if (userMatchesSub(t, canceledSub)) {
+      updateTeacher({ ...t, subscription: canceledSub, updatedAt: new Date().toISOString() });
+    }
+  });
 
   syncSubscriptionToFirestore(canceledSub).catch(() => {});
 };
 
-export const getUserSubscription = (userIdOrLogin?: string): UserSubscription | null => {
-  if (!userIdOrLogin) return null;
-  const clean = userIdOrLogin.trim().toLowerCase();
+export const getUserSubscription = (
+  userOrId?: string | { id?: string; loginId?: string; email?: string; googleId?: string; subscription?: any } | null
+): UserSubscription | null => {
+  if (!userOrId) return null;
   const allSubs = getSubscriptions();
-  const matches = allSubs.filter(
-    (s) =>
-      s.userId?.toLowerCase() === clean ||
-      s.loginId?.toLowerCase() === clean ||
-      (s.userEmail && s.userEmail.toLowerCase() === clean)
-  );
+  if (allSubs.length === 0) return null;
+
+  let matches: UserSubscription[] = [];
+
+  if (typeof userOrId === 'string') {
+    const clean = userOrId.trim().toLowerCase();
+    const cleanNorm = clean.includes('@') ? normalizeEmail(clean) : '';
+    matches = allSubs.filter((s) => {
+      const sUserId = (s.userId || '').trim().toLowerCase();
+      const sLogin = (s.loginId || '').trim().toLowerCase();
+      const sEmail = (s.userEmail || '').trim().toLowerCase();
+      const sNormEmail = sEmail && sEmail.includes('@') ? normalizeEmail(sEmail) : '';
+
+      return (
+        sUserId === clean ||
+        sLogin === clean ||
+        sEmail === clean ||
+        (cleanNorm && (sEmail === cleanNorm || sNormEmail === cleanNorm || sLogin === cleanNorm))
+      );
+    });
+  } else {
+    matches = allSubs.filter((s) => userMatchesSub(userOrId, s));
+  }
+
   if (matches.length === 0) return null;
-  const active = matches.find((s) => s.status === 'active' || s.status === 'pending_verification');
-  if (active) return active;
+
+  // Prioritize active, non-expired subscriptions
+  const activeSubs = matches.filter((s) => isSubscriptionActive(s));
+  if (activeSubs.length > 0) {
+    // Sort by latest expiry date so the extended subscription is always chosen
+    activeSubs.sort((a, b) => new Date(b.expiryDate).getTime() - new Date(a.expiryDate).getTime());
+    return activeSubs[0];
+  }
+
+  // If none active, sort all matches by newest expiry date
+  matches.sort((a, b) => new Date(b.expiryDate).getTime() - new Date(a.expiryDate).getTime());
   return matches[0];
 };
 
@@ -2352,7 +2602,41 @@ export const pullAndApplyCloudSubscriptions = async (): Promise<number> => {
       const merged = Array.from(subMap.values());
       saveSubscriptions(merged);
     }
-    return updatedCount;
+
+    // Reconcile students and teachers with active subscriptions
+    const students = getStudents();
+    let studentsUpdated = false;
+    const reconciledStudents = students.map((s) => {
+      const best = getUserSubscription(s);
+      if (best && isSubscriptionActive(best)) {
+        if (!s.subscription || !isSubscriptionActive(s.subscription) || s.subscription.expiryDate !== best.expiryDate) {
+          studentsUpdated = true;
+          return { ...s, subscription: best };
+        }
+      }
+      return s;
+    });
+    if (studentsUpdated) {
+      saveStudents(reconciledStudents);
+    }
+
+    const teachers = getTeachers();
+    let teachersUpdated = false;
+    const reconciledTeachers = teachers.map((t) => {
+      const best = getUserSubscription(t);
+      if (best && isSubscriptionActive(best)) {
+        if (!t.subscription || !isSubscriptionActive(t.subscription) || t.subscription.expiryDate !== best.expiryDate) {
+          teachersUpdated = true;
+          return { ...t, subscription: best, validityDays: best.durationDays };
+        }
+      }
+      return t;
+    });
+    if (teachersUpdated) {
+      saveTeachers(reconciledTeachers);
+    }
+
+    return updatedCount + (studentsUpdated ? 1 : 0) + (teachersUpdated ? 1 : 0);
   } catch (err) {
     console.warn('pullAndApplyCloudSubscriptions notice:', err);
     return 0;

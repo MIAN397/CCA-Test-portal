@@ -23,6 +23,7 @@ import {
   fetchAllProfilesFromFirestore,
   fetchStudentByEmailFromFirestore,
   fetchGoogleUserFromFirestore,
+  fetchAllSubscriptionsFromFirestore,
 } from '../services/firebaseSync';
 import {
   updateTeacher,
@@ -38,6 +39,9 @@ import {
   saveStudents,
   checkLoginIdConflictAcrossAll,
   resolveSafePassword,
+  getUserSubscription,
+  userMatchesSub,
+  pullAndApplyCloudSubscriptions,
 } from '../utils/storage';
 import {
   initiateGoogleRedirect,
@@ -142,6 +146,14 @@ export const Login: React.FC<LoginProps> = ({
 
   const handleProcessGoogleProfile = async (profile: GoogleUserProfile) => {
     const cleanEmail = profile.email.trim().toLowerCase();
+    const normEmail = normalizeEmail(cleanEmail);
+    const cleanEmailDocId = cleanEmail.replace(/[^a-z0-9_-]/g, '_');
+
+    // 0. Ensure freshest subscriptions from Cloud Firestore are pulled first
+    try {
+      await pullAndApplyCloudSubscriptions();
+    } catch {}
+
     const allStudents = typeof window !== 'undefined' ? getStudents() : students;
     const allTeachers = typeof window !== 'undefined' ? getTeachers() : teachers;
     const allAdmins = typeof window !== 'undefined' ? getAdmins() : admins;
@@ -158,86 +170,142 @@ export const Login: React.FC<LoginProps> = ({
       }
     }
 
-    // 3. Authoritative Cloud check: If not matched, OR if matched only as a local student,
-    // verify Cloud Firestore to see if this user has an authoritative Teacher/Admin/Dev profile
-    if (!match.matched || match.role === 'student') {
+    // 3. Authoritative Cloud check: Always verify Cloud Firestore to ensure latest roles and profiles
+    try {
+      // Check direct document lookups
+      let foundCloud = await fetchProfileByLoginId(cleanEmailDocId);
+      if (!foundCloud) {
+        foundCloud = await fetchStudentByEmailFromFirestore(cleanEmail);
+      }
+      if (!foundCloud) {
+        foundCloud = await fetchGoogleUserFromFirestore(cleanEmail);
+      }
+      if (!foundCloud && profile.sub) {
+        foundCloud = await fetchGoogleUserFromFirestore(profile.sub);
+      }
+
+      // Full Firestore profiles scan with normalized Gmail matching fallback
+      if (!foundCloud) {
+        const cloudProfiles = await fetchAllProfilesFromFirestore();
+        foundCloud = cloudProfiles.find((p) => {
+          const pEmail = p.email?.trim().toLowerCase();
+          const pLogin = p.loginId?.trim().toLowerCase();
+          return (
+            pEmail === cleanEmail ||
+            pLogin === cleanEmail ||
+            (pEmail && normalizeEmail(pEmail) === normEmail) ||
+            (pLogin && normalizeEmail(pLogin) === normEmail)
+          );
+        });
+      }
+
+      if (foundCloud) {
+        const role = (foundCloud.role as UserRole) || 'student';
+        if (role === 'teacher') {
+          // Teacher role takes absolute priority over any stale local student cache on this device!
+          const currentStudents = getStudents().filter(
+            (s) => s.email?.toLowerCase() !== cleanEmail && s.loginId?.toLowerCase() !== cleanEmail
+          );
+          saveStudents(currentStudents);
+          updateTeacher(foundCloud);
+          match = { matched: true, role: 'teacher', user: foundCloud };
+        } else if (role === 'admin') {
+          updateAdmin(foundCloud);
+          match = { matched: true, role: 'admin', user: foundCloud };
+        } else if (role === 'developer') {
+          updateDeveloper(foundCloud);
+          match = { matched: true, role: 'developer', user: foundCloud };
+        } else if (role === 'student') {
+          const existingLocalStudent = match.matched && match.role === 'student' ? (match.user as Student) : undefined;
+          const mergedStudent: Student = {
+            ...(existingLocalStudent || {}),
+            ...foundCloud,
+            id: foundCloud.id || existingLocalStudent?.id || `std-${Date.now()}`,
+            name: foundCloud.name || existingLocalStudent?.name || profile.name || 'Cadet Candidate',
+            className: foundCloud.className || existingLocalStudent?.className || 'Class 8 (Cadet Prep)',
+            phone: foundCloud.phone || existingLocalStudent?.phone || '',
+            loginId: foundCloud.loginId || existingLocalStudent?.loginId || cleanEmail.split('@')[0],
+            role: 'student',
+            subscription: foundCloud.subscription || existingLocalStudent?.subscription,
+            googleId: profile.sub,
+            googlePicture: profile.picture,
+            email: cleanEmail,
+          };
+          updateStudent(mergedStudent);
+          match = { matched: true, role: 'student', user: mergedStudent };
+        }
+      }
+    } catch (err) {
+      console.warn('Cloud profile match note:', err);
+    }
+
+    // 4. If still not matched, check if an active subscription exists in Cloud Firestore for this Google user
+    if (!match.matched) {
       try {
-        const normEmail = normalizeEmail(cleanEmail);
-        const cleanEmailDocId = cleanEmail.replace(/[^a-z0-9_-]/g, '_');
+        const cloudSubs = await fetchAllSubscriptionsFromFirestore();
+        const activeSubForCandidate = cloudSubs.find(
+          (s) =>
+            isSubscriptionActive(s) &&
+            ((s.userEmail && (s.userEmail.toLowerCase() === cleanEmail || normalizeEmail(s.userEmail) === normEmail)) ||
+              (s.loginId && s.loginId.toLowerCase() === cleanEmail) ||
+              (s.userId && (s.userId === profile.sub || s.userId === cleanEmail)))
+        );
 
-        // Check direct document lookups
-        let foundCloud = await fetchProfileByLoginId(cleanEmailDocId);
-        if (!foundCloud) {
-          foundCloud = await fetchStudentByEmailFromFirestore(cleanEmail);
-        }
-        if (!foundCloud) {
-          foundCloud = await fetchGoogleUserFromFirestore(cleanEmail);
-        }
-        if (!foundCloud && profile.sub) {
-          foundCloud = await fetchGoogleUserFromFirestore(profile.sub);
-        }
+        if (activeSubForCandidate) {
+          saveUserSubscription(activeSubForCandidate);
+          const isTeacherSub =
+            activeSubForCandidate.planId.includes('faculty') ||
+            (activeSubForCandidate.maxClasses && activeSubForCandidate.maxClasses > 0);
 
-        // Full Firestore profiles scan with normalized Gmail matching fallback
-        if (!foundCloud) {
-          const cloudProfiles = await fetchAllProfilesFromFirestore();
-          foundCloud = cloudProfiles.find((p) => {
-            const pEmail = p.email?.trim().toLowerCase();
-            const pLogin = p.loginId?.trim().toLowerCase();
-            return (
-              pEmail === cleanEmail ||
-              pLogin === cleanEmail ||
-              (pEmail && normalizeEmail(pEmail) === normEmail) ||
-              (pLogin && normalizeEmail(pLogin) === normEmail)
-            );
-          });
-        }
-
-        if (foundCloud) {
-          const role = (foundCloud.role as UserRole) || 'student';
-          if (role === 'teacher') {
-            // Teacher role takes absolute priority over any stale local student cache on this device!
-            const currentStudents = getStudents().filter(
-              (s) => s.email?.toLowerCase() !== cleanEmail && s.loginId?.toLowerCase() !== cleanEmail
-            );
-            saveStudents(currentStudents);
-            updateTeacher(foundCloud);
-            match = { matched: true, role: 'teacher', user: foundCloud };
-          } else if (role === 'admin') {
-            updateAdmin(foundCloud);
-            match = { matched: true, role: 'admin', user: foundCloud };
-          } else if (role === 'developer') {
-            updateDeveloper(foundCloud);
-            match = { matched: true, role: 'developer', user: foundCloud };
-          } else if (role === 'student' && !match.matched) {
-            const institutionalSub =
-              foundCloud.subscription ||
-              createSubscriptionRecord(
-                foundCloud,
-                'annual',
-                'cash',
-                `FACULTY-ENROLLED-${foundCloud.enrolledByTeacherId || 'TEACHER'}`,
-                'Auto-authorized for faculty enrolled student'
-              );
-            const studentToSave: Student = {
-              ...foundCloud,
-              id: foundCloud.id || `std-${Date.now()}`,
-              name: foundCloud.name || profile.name || 'Cadet Candidate',
-              className: foundCloud.className || 'Class 8 (Cadet Prep)',
-              phone: foundCloud.phone || '',
-              loginId: foundCloud.loginId || cleanEmail.split('@')[0],
-              role: 'student',
-              subscription: institutionalSub,
+          if (isTeacherSub) {
+            const pass = `CCA-${Math.random().toString(36).substring(2, 8)}`;
+            const teacherId = `tch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            const newTeacher: Teacher = {
+              id: teacherId,
+              name: profile.name || cleanEmail.split('@')[0] || 'Faculty Member',
+              email: cleanEmail,
+              phone: '',
+              loginId: cleanEmail,
+              password: pass,
+              assignments: [],
+              maxClasses: activeSubForCandidate.maxClasses || 3,
+              lifetimeClassesCreated: 0,
               googleId: profile.sub,
               googlePicture: profile.picture,
-              email: cleanEmail,
+              recruitedAt: new Date().toISOString(),
+              subscription: activeSubForCandidate,
+              validityDays: activeSubForCandidate.durationDays,
             };
-            updateStudent(studentToSave);
-            saveUserSubscription(institutionalSub);
-            match = { matched: true, role: 'student', user: studentToSave };
+            updateTeacher(newTeacher);
+            match = { matched: true, role: 'teacher', user: newTeacher };
+          } else {
+            const newStudent: Student = {
+              id: `std-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              name: profile.name || cleanEmail.split('@')[0] || 'Cadet Candidate',
+              email: cleanEmail,
+              phone: '',
+              loginId: cleanEmail.split('@')[0],
+              className: 'Class 8 (Cadet Prep)',
+              googleId: profile.sub,
+              googlePicture: profile.picture,
+              enrolledAt: new Date().toISOString(),
+              subscription: activeSubForCandidate,
+              enrolledClasses: [
+                {
+                  enrollmentId: `enr-self-${Date.now()}`,
+                  className: 'Class 8 (Cadet Prep)',
+                  enrolledByTeacherId: 'TEACHER',
+                  status: 'active',
+                  enrolledAt: new Date().toISOString(),
+                },
+              ],
+            };
+            updateStudent(newStudent);
+            match = { matched: true, role: 'student', user: newStudent };
           }
         }
       } catch (err) {
-        console.warn('Cloud profile match note:', err);
+        console.warn('Subscription check error for candidate:', err);
       }
     }
 
@@ -246,7 +314,33 @@ export const Login: React.FC<LoginProps> = ({
 
       if (match.role === 'student') {
         const student = match.user as Student;
-        let activeSub = student.subscription;
+        // Resolve best active subscription across all sources
+        let activeSub =
+          (isSubscriptionActive(student.subscription) ? student.subscription : null) ||
+          getUserSubscription(student) ||
+          getUserSubscription(cleanEmail) ||
+          (profile.sub ? getUserSubscription(profile.sub) : null) ||
+          student.subscription;
+
+        if (!isSubscriptionActive(activeSub)) {
+          // Check Cloud Firestore subscriptions directly
+          try {
+            const cloudSubs = await fetchAllSubscriptionsFromFirestore();
+            const activeCloudSub = cloudSubs.find(
+              (s) =>
+                isSubscriptionActive(s) &&
+                (userMatchesSub(student, s) ||
+                  (s.userEmail && (s.userEmail.toLowerCase() === cleanEmail || normalizeEmail(s.userEmail) === normEmail)) ||
+                  (s.loginId && s.loginId.toLowerCase() === cleanEmail) ||
+                  (s.userId && (s.userId === profile.sub || s.userId === student.id)))
+            );
+            if (activeCloudSub) {
+              activeSub = activeCloudSub;
+              saveUserSubscription(activeSub);
+            }
+          } catch {}
+        }
+
         if (!isSubscriptionActive(activeSub)) {
           // If the student was officially enrolled by a faculty teacher, auto-authorize institutional pass
           const isTeacherEnrolled =
@@ -302,11 +396,39 @@ export const Login: React.FC<LoginProps> = ({
         }
       } else {
         const teacherUser = match.user as Teacher;
+        // Resolve best active subscription across all sources
+        let activeTeacherSub =
+          (isSubscriptionActive(teacherUser.subscription) ? teacherUser.subscription : null) ||
+          getUserSubscription(teacherUser) ||
+          getUserSubscription(cleanEmail) ||
+          (profile.sub ? getUserSubscription(profile.sub) : null) ||
+          teacherUser.subscription;
+
+        if (!isSubscriptionActive(activeTeacherSub)) {
+          try {
+            const cloudSubs = await fetchAllSubscriptionsFromFirestore();
+            const activeCloudSub = cloudSubs.find(
+              (s) =>
+                isSubscriptionActive(s) &&
+                (userMatchesSub(teacherUser, s) ||
+                  (s.userEmail && (s.userEmail.toLowerCase() === cleanEmail || normalizeEmail(s.userEmail) === normEmail)) ||
+                  (s.loginId && s.loginId.toLowerCase() === cleanEmail) ||
+                  (s.userId && (s.userId === profile.sub || s.userId === teacherUser.id)))
+            );
+            if (activeCloudSub) {
+              activeTeacherSub = activeCloudSub;
+              saveUserSubscription(activeTeacherSub);
+            }
+          } catch {}
+        }
+
         const updatedTeacher: Teacher = {
           ...teacherUser,
           googleId: profile.sub || teacherUser.googleId,
           googlePicture: profile.picture || teacherUser.googlePicture,
           email: cleanEmail || teacherUser.email,
+          subscription: activeTeacherSub,
+          validityDays: activeTeacherSub?.durationDays ?? teacherUser.validityDays,
         };
         if (match.role === 'teacher') {
           updateTeacher(updatedTeacher);
@@ -320,6 +442,7 @@ export const Login: React.FC<LoginProps> = ({
           role: match.role,
           picture: profile.picture,
           loginId: match.user.loginId,
+          subscription: activeTeacherSub,
           authProvider: 'google',
         }).catch(() => {});
 

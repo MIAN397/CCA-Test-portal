@@ -602,6 +602,25 @@ export async function deleteProfileFromFirestore(
 }
 
 /**
+ * Permanently deletes a specific profile document by its exact or sanitized document ID in Cloud Firestore.
+ * Used when a user's Login ID or Email changes, removing the obsolete alias document so it doesn't conflict.
+ */
+export async function deleteProfileDocumentFromFirestore(docId: string): Promise<boolean> {
+  try {
+    const config = getFirestoreConfig();
+    const cleanDoc = docId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!cleanDoc) return false;
+    const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents/profiles/${cleanDoc}${
+      config.apiKey ? `?key=${config.apiKey}` : ''
+    }`;
+    const res = await fetch(url, { method: 'DELETE' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Helper to merge two Firestore profile documents representing the same user.
  * Always preserves custom (non-'password123') passwords and newer updatedAt metadata.
  */

@@ -29,7 +29,7 @@ import {
   Radio,
   FileText,
 } from 'lucide-react';
-import { getDaysRemaining } from '../utils/subscription';
+import { getDaysRemaining, isSubscriptionActive } from '../utils/subscription';
 import { getUserSubscription } from '../utils/storage';
 
 interface SidebarProps {
@@ -92,14 +92,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchFilter, setSearchFilter] = useState('');
 
   const teacherSub =
+    (currentTeacher && isSubscriptionActive(currentTeacher.subscription) ? currentTeacher.subscription : null) ||
+    getUserSubscription(currentTeacher) ||
+    (googleEmail ? getUserSubscription(googleEmail) : null) ||
     currentTeacher?.subscription ||
-    (currentTeacher?.id ? getUserSubscription(currentTeacher.id) : null) ||
-    (currentTeacher?.loginId ? getUserSubscription(currentTeacher.loginId) : null);
+    null;
 
   const studentSub =
+    (currentStudent && isSubscriptionActive(currentStudent.subscription) ? currentStudent.subscription : null) ||
+    getUserSubscription(currentStudent) ||
+    (googleEmail ? getUserSubscription(googleEmail) : null) ||
     currentStudent?.subscription ||
-    (currentStudent?.id ? getUserSubscription(currentStudent.id) : null) ||
-    (currentStudent?.loginId ? getUserSubscription(currentStudent.loginId) : null);
+    null;
 
   const activeSub = currentRole === 'teacher' ? teacherSub : currentRole === 'student' ? studentSub : null;
 

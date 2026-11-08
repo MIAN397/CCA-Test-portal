@@ -419,6 +419,14 @@ export function App() {
       const existing = teachers.find((t) => t.id === editId);
       if (existing) {
         let updatedSub = existing.subscription;
+        if (updatedSub) {
+          updatedSub = {
+            ...updatedSub,
+            userName: data.name,
+            userEmail: data.email,
+            loginId: data.loginId,
+          };
+        }
         if (data.validityDays && data.validityDays > 0) {
           const now = new Date();
           const expiry = new Date(now.getTime() + data.validityDays * 24 * 60 * 60 * 1000);
@@ -465,7 +473,16 @@ export function App() {
     if (editId) {
       const existing = students.find((s) => s.id === editId);
       if (existing) {
-        updateStudent({ ...existing, ...data });
+        let updatedSub = existing.subscription;
+        if (updatedSub) {
+          updatedSub = {
+            ...updatedSub,
+            userName: data.name,
+            userEmail: data.email,
+            loginId: data.loginId,
+          };
+        }
+        updateStudent({ ...existing, ...data, subscription: updatedSub });
       }
     } else {
       enrollStudent(data);
@@ -713,7 +730,18 @@ export function App() {
 
   const cleanStr = (s?: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  const currentTeacher = teachers.find((t) => t.id === activeTeacherId) || teachers[0] || null;
+  const currentTeacher =
+    teachers.find((t) => t.id === activeTeacherId) ||
+    (googleEmail
+      ? teachers.find(
+          (t) =>
+            (t.email && (t.email.toLowerCase() === googleEmail.toLowerCase() || normalizeEmail(t.email) === normalizeEmail(googleEmail))) ||
+            (t.loginId && t.loginId.toLowerCase() === googleEmail.toLowerCase()) ||
+            (t.googleId && initialSession.userId && t.googleId === initialSession.userId)
+        )
+      : null) ||
+    teachers[0] ||
+    null;
 
   const teacherAvailableClasses = useMemo(() => {
     return currentTeacher
@@ -737,6 +765,7 @@ export function App() {
       ? students.find(
           (s) =>
             (s.email && (s.email.toLowerCase() === googleEmail.toLowerCase() || normalizeEmail(s.email) === normalizeEmail(googleEmail))) ||
+            (s.loginId && s.loginId.toLowerCase() === googleEmail.toLowerCase()) ||
             (s.googleId && initialSession.userId && s.googleId === initialSession.userId)
         )
       : null) ||
@@ -807,7 +836,18 @@ export function App() {
     initialSession.authProvider === 'google' ||
     (currentStudent && !!currentStudent.googleId);
 
-  const hasActivePlan = isEnrolledByTeacher || isSubscriptionActive(currentStudent?.subscription);
+  const activeStudentSub = currentStudent
+    ? (isSubscriptionActive(currentStudent.subscription) ? currentStudent.subscription : null) ||
+      getUserSubscription(currentStudent) ||
+      getUserSubscription(currentStudent.id) ||
+      getUserSubscription(currentStudent.loginId) ||
+      (currentStudent.email ? getUserSubscription(currentStudent.email) : null) ||
+      (googleEmail ? getUserSubscription(googleEmail) : null) ||
+      (currentStudent.googleId ? getUserSubscription(currentStudent.googleId) : null) ||
+      currentStudent.subscription
+    : null;
+
+  const hasActivePlan = isEnrolledByTeacher || isSubscriptionActive(activeStudentSub);
 
   if (currentRole === 'student' && isGoogleAuthUser && !hasActivePlan) {
     return (
@@ -819,7 +859,7 @@ export function App() {
           loginId: currentStudent?.loginId || 'cadet',
           googlePicture: googlePicture || currentStudent?.googlePicture,
         }}
-        currentSubscription={currentStudent?.subscription}
+        currentSubscription={activeStudentSub}
         onActivatePlan={(sub) => {
           saveUserSubscription(sub);
           const studentNow = getStudents().find(
@@ -858,7 +898,14 @@ export function App() {
   // DO NOT delete their profile or class data. Show the packages page with hideFreeTier=true
   // so they can acquire a paid pass using the official payment instructions.
   const activeTeacherSub = currentTeacher
-    ? currentTeacher.subscription || getUserSubscription(currentTeacher.id) || getUserSubscription(currentTeacher.loginId)
+    ? (isSubscriptionActive(currentTeacher.subscription) ? currentTeacher.subscription : null) ||
+      getUserSubscription(currentTeacher) ||
+      getUserSubscription(currentTeacher.id) ||
+      getUserSubscription(currentTeacher.loginId) ||
+      (currentTeacher.email ? getUserSubscription(currentTeacher.email) : null) ||
+      (googleEmail ? getUserSubscription(googleEmail) : null) ||
+      (currentTeacher.googleId ? getUserSubscription(currentTeacher.googleId) : null) ||
+      currentTeacher.subscription
     : null;
   const isTeacherExpired = currentRole === 'teacher' && !!activeTeacherSub && !isSubscriptionActive(activeTeacherSub);
 
@@ -1183,10 +1230,8 @@ export function App() {
               }}
               currentSubscription={
                 currentRole === 'teacher' && currentTeacher
-                  ? currentTeacher.subscription ||
-                    getUserSubscription(currentTeacher.id) ||
-                    getUserSubscription(currentTeacher.loginId)
-                  : currentStudent?.subscription
+                  ? activeTeacherSub
+                  : activeStudentSub
               }
               hideFreeTier={currentRole === 'teacher'}
               onActivatePlan={(sub) => {

@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { UserRole, Teacher, Student } from '../types';
 import { LogOut, Shield, UserCheck, GraduationCap, Code, Cloud, Menu, Clock, Sparkles } from 'lucide-react';
-import { getDaysRemaining } from '../utils/subscription';
+import { getDaysRemaining, isSubscriptionActive } from '../utils/subscription';
 import { getUserSubscription } from '../utils/storage';
 
 interface NavbarProps {
@@ -27,14 +27,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenPlanPortal,
 }) => {
   const teacherSub =
+    (currentTeacher && isSubscriptionActive(currentTeacher.subscription) ? currentTeacher.subscription : null) ||
+    getUserSubscription(currentTeacher) ||
+    (googleEmail ? getUserSubscription(googleEmail) : null) ||
     currentTeacher?.subscription ||
-    (currentTeacher?.id ? getUserSubscription(currentTeacher.id) : null) ||
-    (currentTeacher?.loginId ? getUserSubscription(currentTeacher.loginId) : null);
+    null;
 
   const studentSub =
+    (currentStudent && isSubscriptionActive(currentStudent.subscription) ? currentStudent.subscription : null) ||
+    getUserSubscription(currentStudent) ||
+    (googleEmail ? getUserSubscription(googleEmail) : null) ||
     currentStudent?.subscription ||
-    (currentStudent?.id ? getUserSubscription(currentStudent.id) : null) ||
-    (currentStudent?.loginId ? getUserSubscription(currentStudent.loginId) : null);
+    null;
 
   const activeSub = currentRole === 'teacher' ? teacherSub : currentRole === 'student' ? studentSub : null;
 

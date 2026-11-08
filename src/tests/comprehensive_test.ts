@@ -1155,6 +1155,126 @@ async function runTests() {
   const restoredTeacher = getTeachers().find((t) => t.id === recruitedFaculty.id);
   assert(isSubscriptionActive(restoredTeacher?.subscription) === true, 'Teacher profile access is completely restored with preserved data');
 
+  console.log('\n--- [Suite 17] Cross-Device Extension of Terminated Membership & Gmail Identity ---');
+  // Scenario: A cadet registered with Gmail has an expired subscription
+  const testGmail = 'cadet.extended.test@gmail.com';
+  const testCadetId = 'std-ext-test-101';
+  const expiredSubId = 'sub-expired-test-01';
+
+  const expiredCadetSub: UserSubscription = {
+    id: expiredSubId,
+    userId: testCadetId,
+    userName: 'Cadet Bilal Extended',
+    userEmail: testGmail,
+    loginId: 'bilal_ext',
+    planId: 'plan-monthly',
+    planName: 'Cadet Monthly Prep Pass',
+    tier: 'monthly',
+    price: 'PKR 1,000',
+    durationDays: 30,
+    status: 'active',
+    startDate: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString(),
+    expiryDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days expired
+    paymentMethod: 'jazzcash',
+    activatedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+
+  const cadetWithExpiredSub: Student = {
+    id: testCadetId,
+    name: 'Cadet Bilal Extended',
+    email: testGmail,
+    phone: '',
+    loginId: 'bilal_ext',
+    className: 'Class 8 (Cadet Prep)',
+    googleId: 'google-sub-bilal-999',
+    enrolledAt: new Date().toISOString(),
+    subscription: expiredCadetSub,
+  };
+
+  saveUserSubscription(expiredCadetSub);
+  updateStudent(cadetWithExpiredSub);
+
+  assert(isSubscriptionActive(expiredCadetSub) === false, 'Cadet initial subscription is verified as expired/terminated');
+  const checkInitialSub = getUserSubscription(testGmail);
+  assert(checkInitialSub !== null && isSubscriptionActive(checkInitialSub) === false, 'getUserSubscription returns expired sub before admin extension');
+
+  // Admin extends the terminated membership by +30 days on Admin laptop
+  const adminExtended = extendUserSubscription(expiredSubId, 30, 'SuperAdmin');
+  assert(adminExtended !== null, 'Admin successfully extends the terminated subscription');
+  assert(isSubscriptionActive(adminExtended) === true, 'Extended subscription is now active');
+
+  // Verify that the student record was updated through multi-match
+  const updatedCadetInDb = getStudents().find((s) => s.id === testCadetId);
+  assert(updatedCadetInDb !== undefined, 'Cadet found in database');
+  assert(isSubscriptionActive(updatedCadetInDb?.subscription) === true, 'Cadet profile subscription updated directly to active upon extension');
+
+  // Verify that when cadet logs in using their Gmail ID (including Gmail dot normalization), their active extended subscription is recognized
+  const resolvedByGmail = getUserSubscription(testGmail);
+  assert(resolvedByGmail !== null && isSubscriptionActive(resolvedByGmail) === true, 'getUserSubscription resolves active extended subscription by Gmail');
+
+  const dotNormalizedGmail = 'cadet.extended.test+anytag@googlemail.com';
+  const resolvedByDotAlias = getUserSubscription(dotNormalizedGmail);
+  assert(resolvedByDotAlias !== null && isSubscriptionActive(resolvedByDotAlias) === true, 'getUserSubscription resolves active extended subscription with Gmail alias/dots');
+
+  const resolvedByCadetObj = getUserSubscription(updatedCadetInDb);
+  assert(resolvedByCadetObj !== null && isSubscriptionActive(resolvedByCadetObj) === true, 'getUserSubscription resolves active extended subscription using Cadet User object');
+
+  // Teacher scenario: Instructor with Gmail whose membership expired
+  const teacherGmail = 'prof.test.extension@gmail.com';
+  const extTeacherId = 'tch-ext-test-202';
+  const teacherExpiredSubId = 'sub-teacher-exp-02';
+
+  const expiredFacultySub: UserSubscription = {
+    id: teacherExpiredSubId,
+    userId: extTeacherId,
+    userName: 'Prof. Extension Test',
+    userEmail: teacherGmail,
+    loginId: 'prof_ext',
+    planId: 'plan-faculty-30d',
+    planName: 'Faculty Pass (30 Days)',
+    tier: 'monthly',
+    price: 'PKR 1,000',
+    durationDays: 30,
+    status: 'active',
+    startDate: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString(),
+    expiryDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // Expired
+    paymentMethod: 'bank_transfer',
+    activatedAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+
+  const expiredFaculty: Teacher = {
+    id: extTeacherId,
+    name: 'Prof. Extension Test',
+    email: teacherGmail,
+    phone: '03001234567',
+    loginId: 'prof_ext',
+    assignments: [{ className: 'Class 8 (Cadet Prep)', subject: 'General Science' }],
+    maxClasses: 3,
+    lifetimeClassesCreated: 1,
+    googleId: 'google-sub-prof-888',
+    recruitedAt: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString(),
+    subscription: expiredFacultySub,
+    validityDays: 30,
+  };
+
+  saveUserSubscription(expiredFacultySub);
+  updateTeacher(expiredFaculty);
+
+  assert(isSubscriptionActive(expiredFacultySub) === false, 'Faculty subscription verified as expired');
+
+  // Extend faculty membership
+  const extendedFacultySub = extendUserSubscription(teacherExpiredSubId, 60, 'Admin-Commander');
+  assert(extendedFacultySub !== null && isSubscriptionActive(extendedFacultySub) === true, 'Faculty subscription extended by +60 days');
+
+  const updatedFacultyInDb = getTeachers().find((t) => t.id === extTeacherId);
+  assert(isSubscriptionActive(updatedFacultyInDb?.subscription) === true, 'Faculty profile in DB now has active subscription');
+
+  const facultyResolvedByGmail = getUserSubscription(teacherGmail);
+  assert(facultyResolvedByGmail !== null && isSubscriptionActive(facultyResolvedByGmail) === true, 'Faculty resolved as active by Gmail ID');
+
+  const facultyResolvedByObj = getUserSubscription(updatedFacultyInDb);
+  assert(facultyResolvedByObj !== null && isSubscriptionActive(facultyResolvedByObj) === true, 'Faculty resolved as active by Teacher object');
+
   console.log('\n======================================================');
   console.log(`   TEST EXECUTION COMPLETE: ${passedTests} PASSED, ${failedTests} FAILED   `);
   console.log('======================================================\n');
